@@ -36,6 +36,11 @@ interface Routes {
     procs: {
       uppercase(s: string): string;
     };
+    streamers: {};
+  };
+  client: {
+    procs: {};
+    streamers: {};
   };
 };
 
@@ -86,6 +91,7 @@ interface Routes {
     procs: {
       approve(question: string): Promise<boolean>;
     };
+    streamers: {};
   };
 }
 
