@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Type-safe bidirectional RPC and streaming over WebSockets for Node.js and browsers",
   "scripts": {
-    "build": "npm run build:core && npm run build:node && npm run build:browser",
+    "build": "pnpm run build:core && pnpm run build:node && pnpm run build:browser",
     "build:core": "cd packages/core && tsc",
     "build:node": "cd packages/node && tsc",
     "build:browser": "cd packages/browser && tsc",
@@ -32,6 +32,7 @@
     "typescript": "^5.0.4"
   },
   "dependencies": {
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.51.0",
     "ws": "^8.18.1"
   }
 }

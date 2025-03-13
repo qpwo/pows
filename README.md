@@ -19,10 +19,10 @@ Powered by uWebSocket.js.
 
 ```bash
 # Server (Node.js)
-npm install @tsws/node
+pnpm install @tsws/node
 
 # Browser client
-npm install @tsws/browser
+pnpm install @tsws/browser
 ```
 
 ## Minimal Example
@@ -222,25 +222,25 @@ function connectTo<Routes, Context>(
 ### Building the packages
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 ### Running tests
 
 ```bash
-npm test
+pnpm test
 ```
 
 ### Running examples
 
 ```bash
 # Basic example
-npm run example:basic:server
-npm run example:basic:client
+pnpm run example:basic:server
+pnpm run example:basic:client
 
 # Advanced example
-npm run example:advanced:server
-npm run example:advanced:client
+pnpm run example:advanced:server
+pnpm run example:advanced:client
 ```
 
 ## License
