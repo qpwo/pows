@@ -8,6 +8,23 @@ Powered by uWebSocket.js.
 - `@tsws/node`: Node.js WebSocket server and client
 - `@tsws/browser`: Browser WebSocket client
 
+## Features
+
+- Type-safe API: Full TypeScript support with interfaces for defining routes
+- Bidirectional RPC: Both server and client can call procedures on each other
+- Streaming support: Stream data with AsyncGenerators
+- Context and middleware: Add custom context and middleware to handle authentication, etc.
+
+## Installation
+
+```bash
+# Server (Node.js)
+npm install @tsws/node
+
+# Browser client
+npm install @tsws/browser
+```
+
 ## Minimal Example
 
 ```ts
@@ -150,3 +167,76 @@ async function run() {
 }
 
 run()
+```
+
+## API Reference
+
+### Server API
+
+#### startServer
+
+```ts
+function startServer<Routes, Context>(
+  handlers: ServerHandlers<Routes, Context>,
+  config?: ServerConfig<Context>
+): ServerImplementation<Routes, Context>;
+```
+
+##### Parameters:
+
+- `handlers`: An object containing handler functions for procedures and streamers
+- `config`: Optional configuration object with the following properties:
+  - `middleware`: Array of middleware functions
+  - `port`: Server port (default: 8080)
+  - `host`: Server host (default: 'localhost')
+
+### Client API
+
+#### connectTo
+
+```ts
+function connectTo<Routes, Context>(
+  handlers?: ClientProcedureHandlers<Routes, Context>,
+  config?: ClientConfig
+): BrowserClient<Routes, Context>;
+```
+
+##### Parameters:
+
+- `handlers`: An object containing handler functions for client procedures
+- `config`: Optional configuration object with the following properties:
+  - `url`: WebSocket server URL (default: 'ws://localhost:8080')
+  - `middleware`: Array of middleware functions
+  - `reconnect`: Whether to automatically reconnect (default: true)
+  - `reconnectDelay`: Base delay in milliseconds between reconnect attempts (default: 1000)
+  - `maxReconnectAttempts`: Maximum number of reconnect attempts (default: 10)
+
+## Development
+
+### Building the packages
+
+```bash
+npm run build
+```
+
+### Running tests
+
+```bash
+npm test
+```
+
+### Running examples
+
+```bash
+# Basic example
+npm run example:basic:server
+npm run example:basic:client
+
+# Advanced example
+npm run example:advanced:server
+npm run example:advanced:client
+```
+
+## License
+
+MIT

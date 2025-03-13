@@ -1,0 +1,21 @@
+{
+  "name": "@tsws/node",
+  "version": "0.1.0",
+  "description": "Node.js WebSocket server and client for TSWS",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@tsws/core": "0.1.0",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.4.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.7.0"
+  }
+}

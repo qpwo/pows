@@ -1,0 +1,33 @@
+{
+  "name": "tsws",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Type-safe bidirectional RPC and streaming over WebSockets for Node.js and browsers",
+  "scripts": {
+    "build": "npm run build:core && npm run build:node && npm run build:browser",
+    "build:core": "cd packages/core && tsc",
+    "build:node": "cd packages/node && tsc",
+    "build:browser": "cd packages/browser && tsc",
+    "test": "jest",
+    "lint": "eslint .",
+    "example:basic:server": "ts-node examples/basic/server.ts",
+    "example:basic:client": "ts-node examples/basic/client.ts",
+    "example:advanced:server": "ts-node examples/advanced/server.ts",
+    "example:advanced:client": "ts-node examples/advanced/client.ts"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@types/jest": "^29.5.1",
+    "@types/node": "^20.2.3",
+    "@types/ws": "^8.5.4",
+    "@typescript-eslint/eslint-plugin": "^5.59.7",
+    "@typescript-eslint/parser": "^5.59.7",
+    "eslint": "^8.41.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.4"
+  }
+}

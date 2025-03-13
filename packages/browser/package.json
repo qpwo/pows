@@ -1,0 +1,20 @@
+{
+  "name": "@tsws/browser",
+  "version": "0.1.0",
+  "description": "Browser WebSocket client for TSWS",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@tsws/core": "0.1.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.7.0"
+  }
+}
