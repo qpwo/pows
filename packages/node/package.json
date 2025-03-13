@@ -12,8 +12,8 @@
     "dist"
   ],
   "dependencies": {
-    "@tsws/core": "0.1.0",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.4.0"
+    "@tsws/core": "workspace:*",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.51.0"
   },
   "peerDependencies": {
     "typescript": ">=4.7.0"

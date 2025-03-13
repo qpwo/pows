@@ -13,7 +13,10 @@ export interface Routes {
 }
 
 startServer<Routes>({
-  uppercase(s, ctx) {
-    return s.toUpperCase();
-  }
+  procs: {
+    uppercase(s, ctx) {
+      return s.toUpperCase();
+    }
+  },
+  streamers: {}
 });

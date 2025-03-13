@@ -13,7 +13,8 @@
     "example:basic:server": "esr examples/basic/server.ts",
     "example:basic:client": "esr examples/basic/client.ts",
     "example:advanced:server": "esr examples/advanced/server.ts",
-    "example:advanced:client": "esr examples/advanced/client.ts"
+    "example:advanced:client": "esr examples/advanced/client.ts",
+    "test:examples": "bash test-example-client-server.sh"
   },
   "workspaces": [
     "packages/*"

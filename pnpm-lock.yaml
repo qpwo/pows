@@ -49,6 +49,30 @@ importers:
         specifier: ^5.0.4
         version: 5.8.2
 
+  packages/browser:
+    dependencies:
+      '@tsws/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: '>=4.7.0'
+        version: 5.8.2
+
+  packages/core:
+    dependencies:
+      typescript:
+        specifier: '>=4.7.0'
+        version: 5.8.2
+
+  packages/node:
+    dependencies:
+      '@tsws/core':
+        specifier: workspace:*
+        version: link:../core
+      uWebSockets.js:
+        specifier: github:uNetworking/uWebSockets.js#v20.51.0
+        version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/6609a88ffa9a16ac5158046761356ce03250a0df
+
 packages:
 
   '@ampproject/remapping@2.3.0':

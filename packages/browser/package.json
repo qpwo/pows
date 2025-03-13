@@ -12,7 +12,7 @@
     "dist"
   ],
   "dependencies": {
-    "@tsws/core": "0.1.0"
+    "@tsws/core": "workspace:*"
   },
   "peerDependencies": {
     "typescript": ">=4.7.0"

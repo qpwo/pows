@@ -495,26 +495,55 @@ class WebSocketClient<Routes extends {
         },
         isConnected: () => {
           return self.ws !== null && self.ws.readyState === WebSocket.OPEN;
+        },
+        callRPC: (procedure: string, params: any) => {
+          return self.callRPC(procedure, params);
+        },
+        createStream: (procedure: string, params: any) => {
+          return self.createStream(procedure, params);
         }
       }
     };
     
-    // Create RPC proxy functions for each server procedure
-    const serverProcs = Object.keys(({} as Routes['server']['procs'])) as Array<keyof Routes['server']['procs']>;
-    for (const procedure of serverProcs) {
-      api.server.procs[procedure] = async (...args: any[]) => {
-        return this.callRPC(procedure as string, args.length === 1 ? args[0] : args);
-      };
-    }
+    // We can't extract keys from the type at runtime, so we'll add a method to 
+    // dynamically create proxy functions when accessed via proxy
+    const serverProcsHandler = {
+      get: (target: any, prop: string) => {
+        if (prop in target) {
+          return target[prop];
+        }
+        
+        // Create a proxy function on demand
+        target[prop] = async (...args: any[]) => {
+          return self.callRPC(`procs.${prop}`, args.length === 1 ? args[0] : args);
+        };
+        
+        return target[prop];
+      }
+    };
     
-    // Create stream proxy functions for each server streamer
-    const serverStreamers = Object.keys(({} as Routes['server']['streamers'])) as Array<keyof Routes['server']['streamers']>;
-    for (const procedure of serverStreamers) {
-      api.server.streamers[procedure] = async function*(...args: any[]) {
-        const stream = self.createStream(procedure as string, args.length === 1 ? args[0] : args);
-        yield* stream;
-      };
-    }
+    // Replace the procs object with a proxy
+    api.server.procs = new Proxy({}, serverProcsHandler);
+    
+    // Similarly for streamers
+    const serverStreamersHandler = {
+      get: (target: any, prop: string) => {
+        if (prop in target) {
+          return target[prop];
+        }
+        
+        // Create a proxy function on demand
+        target[prop] = async function*(...args: any[]) {
+          const stream = self.createStream(`streamers.${prop}`, args.length === 1 ? args[0] : args);
+          yield* stream;
+        };
+        
+        return target[prop];
+      }
+    };
+    
+    // Replace the streamers object with a proxy
+    api.server.streamers = new Proxy({}, serverStreamersHandler);
     
     return api as BrowserClient<Routes, Context>;
   }
