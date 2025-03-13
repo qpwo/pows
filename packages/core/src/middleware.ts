@@ -6,28 +6,23 @@ export const asyncLocalStorage = new AsyncLocalStorage<any>();
 
 /**
  * Execute middleware stack with the given context
+ * Optimized for performance with reduced allocations
  */
 export async function executeMiddleware<Context>(
   middlewares: MiddlewareStack<Context>,
   ctx: Context
 ): Promise<void> {
+  if (!middlewares.length) return;
+  
   let index = 0;
+  const middlewaresLength = middlewares.length;
   
   const next = async (): Promise<void> => {
-    // If we've run all middleware, we're done
-    if (index >= middlewares.length) {
-      return;
-    }
-    
-    // Get the current middleware and increment the index
-    const middleware = middlewares[index++];
-    
-    // Execute the middleware with the context and next function
-    await middleware(ctx, next);
+    if (index >= middlewaresLength) return;
+    return middlewares[index++](ctx, next);
   };
   
-  // Start executing middleware
-  await next();
+  return next();
 }
 
 /**

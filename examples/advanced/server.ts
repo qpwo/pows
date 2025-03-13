@@ -58,7 +58,7 @@ var api = startServer<Routes, ServerContext>({
       ctx.uws = ctx.rawSocket as uWebSocket;
       const req = ctx.uws.upgradeReq; // Use uWebSocket's request object directly
       // Note: In a real application, use a robust cookie parsing library.
-      const userId = req.headers.cookie?.match(/userId=(\\d+)/)?.[1];
+      const userId = req.headers.cookie?.match(/userId=(\d+)/)?.[1];
       ctx.userId = userId ? parseInt(userId, 10) : null;
       ctx.userName = 'Alice';
       await next();

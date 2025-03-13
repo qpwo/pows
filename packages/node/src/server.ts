@@ -294,45 +294,45 @@ class WebSocketServer<Routes extends {
     generator: AsyncGenerator<any, void, unknown>,
     client: WebSocketClient
   ) {
+    const streamId = `${client.id}:${messageId}`;
+    
     try {
-      while (true) {
-        const { value, done } = await generator.next();
+      // Process all stream values without creating new message objects for each iteration
+      let result;
+      
+      // Reuse data message object for better performance
+      const dataMessage: StreamData = {
+        id: messageId,
+        type: 'stream-data',
+        data: undefined
+      };
+      
+      while (!(result = await generator.next()).done) {
+        // Update data in the reused message
+        dataMessage.data = result.value;
         
-        if (done) {
-          // Stream completed successfully
-          const endMessage: StreamEnd = {
-            id: messageId,
-            type: 'stream-end'
-          };
-          
-          client.send(endMessage);
-          break;
-        }
-        
-        // Send data message
-        const dataMessage: StreamData = {
-          id: messageId,
-          type: 'stream-data',
-          data: value
-        };
-        
+        // Send the data
         client.send(dataMessage);
       }
+      
+      // Stream completed successfully
+      client.send({
+        id: messageId,
+        type: 'stream-end'
+      });
+      
     } catch (error: any) {
-      // Stream threw an error
-      const endMessage: StreamEnd = {
+      // Stream threw an error, send error message
+      client.send({
         id: messageId,
         type: 'stream-end',
         error: {
-          message: error.message || 'Unknown error',
-          code: error.code
+          message: error?.message || 'Unknown error',
+          code: error?.code
         }
-      };
-      
-      client.send(endMessage);
+      });
     } finally {
-      // Clean up the stream
-      const streamId = `${client.id}:${messageId}`;
+      // Always clean up the stream
       this.activeStreams.delete(streamId);
     }
   }
@@ -399,27 +399,22 @@ class WebSocketServer<Routes extends {
           params
         };
         
-        // Create a promise that will resolve when the response is received
-        const responsePromise = new Promise((resolve, reject) => {
+        return new Promise((resolve, reject) => {
           // Register a callback for this message ID
-          this.pendingResponses.set(`${client!.id}:${messageId}`, { resolve, reject });
+          const key = `${client!.id}:${messageId}`;
+          this.pendingResponses.set(key, { resolve, reject });
           
           // Send the request
           client!.send(request);
           
           // Set up a timeout to reject the promise if no response is received
           setTimeout(() => {
-            const pendingKey = `${client!.id}:${messageId}`;
-            const pending = this.pendingResponses.get(pendingKey);
-            
-            if (pending) {
-              this.pendingResponses.delete(pendingKey);
-              pending.reject(new Error('RPC request timed out'));
+            if (this.pendingResponses.has(key)) {
+              this.pendingResponses.delete(key);
+              reject(new Error('RPC request timed out'));
             }
           }, 30000); // 30 second timeout
         });
-        
-        return responsePromise;
       };
     }
     

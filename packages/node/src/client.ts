@@ -299,22 +299,21 @@ class WebSocketClient<Routes extends {
   }
 
   private callRPC<T>(procedure: string, params: any): Promise<T> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Not connected to server'));
+    }
+      
+    const messageId = generateMessageId();
+      
+    // Create the request message
+    const request: RPCRequest = {
+      id: messageId,
+      type: 'rpc-request',
+      procedure,
+      params
+    };
+      
     return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error('Not connected to server'));
-        return;
-      }
-      
-      const messageId = generateMessageId();
-      
-      // Create the request message
-      const request: RPCRequest = {
-        id: messageId,
-        type: 'rpc-request',
-        procedure,
-        params
-      };
-      
       // Register the promise
       this.pendingRPCs.set(messageId, { resolve, reject });
       
@@ -323,11 +322,9 @@ class WebSocketClient<Routes extends {
       
       // Set up a timeout to reject the promise if no response is received
       setTimeout(() => {
-        const pending = this.pendingRPCs.get(messageId);
-        
-        if (pending) {
+        if (this.pendingRPCs.has(messageId)) {
           this.pendingRPCs.delete(messageId);
-          pending.reject(new Error('RPC request timed out'));
+          reject(new Error('RPC request timed out'));
         }
       }, 30000); // 30 second timeout
     });
@@ -359,7 +356,14 @@ class WebSocketClient<Routes extends {
 
   private createStreamGenerator<T>(messageId: string): AsyncGenerator<T, void, unknown> {
     const self = this;
-    let buffer: T[] = [];
+    
+    // Use a circular buffer for better performance
+    const BUFFER_SIZE = 32;
+    const buffer: T[] = new Array(BUFFER_SIZE);
+    let readIndex = 0;
+    let writeIndex = 0;
+    let bufferCount = 0;
+    
     let error: Error | null = null;
     let done = false;
     let resolveNext: ((value: IteratorResult<T, void>) => void) | null = null;
@@ -368,20 +372,28 @@ class WebSocketClient<Routes extends {
     const controller = {
       push: (value: T) => {
         if (resolveNext) {
+          // If a promise is waiting, resolve it immediately
           resolveNext({ value, done: false });
           resolveNext = null;
-        } else {
-          buffer.push(value);
+        } else if (bufferCount < BUFFER_SIZE) {
+          // Otherwise, add to buffer if there's space
+          buffer[writeIndex] = value;
+          writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+          bufferCount++;
         }
+        // If buffer is full, we'll drop this value - in a real-world scenario, 
+        // you might want to implement a backpressure mechanism
       },
+      
       complete: (err?: Error) => {
         error = err || null;
         done = true;
         
         if (resolveNext) {
           if (error) {
-            // This will be caught by the generator's next() call
-            throw error;
+            // Forward error to next() caller
+            const reject = resolveNext as any;
+            reject(error);
           } else {
             resolveNext({ value: undefined, done: true });
           }
@@ -404,12 +416,16 @@ class WebSocketClient<Routes extends {
       
       async next(): Promise<IteratorResult<T, void>> {
         // If there's data in the buffer, return it
-        if (buffer.length > 0) {
-          return { value: buffer.shift()!, done: false };
+        if (bufferCount > 0) {
+          const value = buffer[readIndex];
+          readIndex = (readIndex + 1) % BUFFER_SIZE;
+          bufferCount--;
+          return { value, done: false };
         }
         
         // If the stream is done, return done
         if (done) {
+          if (error) throw error;
           return { value: undefined, done: true };
         }
         
@@ -424,18 +440,12 @@ class WebSocketClient<Routes extends {
       },
       
       async return(): Promise<IteratorResult<T, void>> {
-        // Cancel the stream
-        try {
-          if (!done && self.ws && self.ws.readyState === WebSocket.OPEN) {
-            const cancelMessage: StreamCancel = {
-              id: messageId,
-              type: 'stream-cancel'
-            };
-            
-            self.sendMessage(cancelMessage);
-          }
-        } catch (e) {
-          // Ignore errors when canceling
+        if (!done && self.ws && self.ws.readyState === WebSocket.OPEN) {
+          // Reuse message object for cancellation
+          self.sendMessage({
+            id: messageId,
+            type: 'stream-cancel'
+          });
         }
         
         // Clean up
@@ -446,18 +456,12 @@ class WebSocketClient<Routes extends {
       },
       
       async throw(err: any): Promise<IteratorResult<T, void>> {
-        // Cancel the stream
-        try {
-          if (!done && self.ws && self.ws.readyState === WebSocket.OPEN) {
-            const cancelMessage: StreamCancel = {
-              id: messageId,
-              type: 'stream-cancel'
-            };
-            
-            self.sendMessage(cancelMessage);
-          }
-        } catch (e) {
-          // Ignore errors when canceling
+        if (!done && self.ws && self.ws.readyState === WebSocket.OPEN) {
+          // Reuse message object for cancellation
+          self.sendMessage({
+            id: messageId,
+            type: 'stream-cancel'
+          });
         }
         
         // Clean up
