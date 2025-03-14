@@ -14,7 +14,7 @@ Type-safe bidirectional RPC and streaming over WebSockets for Node.js and browse
 // example-little-server.ts
 import { startServer } from './tsws-node-server';
 
-interface Routes {
+export interface Routes {
   server: {
     procs: {
       uppercase(s: string): string;
@@ -58,7 +58,7 @@ import { startServer } from './tsws-node-server';
 import type uWebSocket from 'uwebsockets.js';
 
 
-interface Routes {
+export interface Routes {
   server: {
     procs: {
       square(x: number): Promise<number>;
