@@ -1,71 +1,71 @@
 // example-big-server.ts
-import { makeTswsServer } from './tsws-node-server'
-
+import { makeTswsServer, type RoutesConstraint } from './tsws-node-server'
+type Empty = Record<string, never>
 export interface Routes {
   server: {
     procs: {
-      square(x: number): Promise<number>
-      whoami(): Promise<{ name: string; userId: number | null }>
+      square(_: { x: number }): Promise<{ result: number }>
+      whoami(_: Empty): Promise<{ name: string; userId: number }>
+      errorTest(_: Empty): Promise<void>
     }
     streamers: {
-      doBigJob(): AsyncGenerator<string, void, unknown>
+      doBigJob(_: Empty): AsyncGenerator<string, void, unknown>
     }
   }
   client: {
     procs: {
-      approve(question: string): Promise<boolean>
+      approve(_: { question: string }): Promise<{ approved: boolean }>
     }
     streamers: {}
   }
 }
-
+const __: RoutesConstraint = null as unknown as Routes
 type ServerContext = {
-  userName: string
+  // ws connection is always available
+  username: string
   userId: number
 }
-
-var api = makeTswsServer<Routes, ServerContext>(
-  {
-    square: async x => {
-      return x * x
+var api = makeTswsServer<Routes, ServerContext>({
+  procs: {
+    async square({ x }) {
+      return { result: x * x }
     },
-
-    whoami: async (_, ctx) => {
-      return { name: ctx.userName, userId: ctx.userId }
+    async whoami(_, ctx) {
+      return {
+        name: ctx.username ?? throwErr('No username'),
+        userId: ctx.userId ?? throwErr('No userId'),
+      }
     },
-
-    doBigJob: async function* (_, ctx) {
+  },
+  streamers: {
+    async *doBigJob(_, ctx) {
       yield 'Starting...'
       await sleep()
-
-      const ok = await ctx.procs.approve('Continue with big job?')
-      if (!ok) {
+      const { approved } = await ctx.clientProcs.approve({ question: 'Continue with big job?' })
+      if (!approved) {
         yield 'Cancelled by user.'
         return
       }
-
       yield 'Working...'
       await sleep()
-
       yield 'Done.'
     },
   },
-  {
-    async onConnection(ctx) {
-      console.log('New connection:', ctx.ws)
-      if (!ctx.userId) {
-        ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
-      }
-      if (!ctx.userName) {
-        ctx.userName = 'Alice'
-      }
-    },
+  async onConnection(ctx) {
+    console.log('New connection:', ctx.ws)
+    if (!ctx.userId) {
+      ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
+    }
+    if (!ctx.username) {
+      ctx.username = 'Alice'
+    }
   },
-)
-
+})
+function throwErr(msg: string) {
+  throw new Error(msg)
+}
 function sleep(ms = 1000) {
   return new Promise(res => setTimeout(res, ms))
 }
-
 console.log('starting api')
 api.start().then(() => console.log('started!'))

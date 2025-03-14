@@ -1,11 +1,10 @@
 // example-little-server.ts
-
-import { makeTswsServer } from './tsws-node-server'
+import { makeTswsServer, type RoutesConstraint } from './tsws-node-server'
 
 export interface Routes {
   server: {
     procs: {
-      uppercase(s: string): string
+      uppercase(_: { s: string }): Promise<{ result: string }>
     }
     streamers: {}
   }
@@ -14,17 +13,16 @@ export interface Routes {
     streamers: {}
   }
 }
+const __: RoutesConstraint = null as unknown as Routes
 
-var api = makeTswsServer<Routes>(
-  {
-    uppercase([s]) {
-      return s.toUpperCase()
+var api = makeTswsServer<Routes>({
+  procs: {
+    async uppercase({ s }) {
+      return { result: s.toUpperCase() }
     },
   },
-  {
-    port: 8080, // default
-  },
-)
-
+  streamers: {},
+  port: 8080, // default
+})
 console.log('starting api')
 api.start().then(() => console.log('started!'))

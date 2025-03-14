@@ -1,33 +1,32 @@
 // example-big-client.ts
 import { makeTswsClient } from './tsws-node-client'
 import type { Routes } from './example-big-server'
-
-const api = makeTswsClient<Routes, {}>(
-  {
-    approve: async (question, ctx) => {
-      console.log('Callback on connection:', ctx.ws)
+type ClientContext = {
+  // ws connection is always available
+  // stuff can be added here
+}
+const api = makeTswsClient<Routes, ClientContext>({
+  procs: {
+    async approve({ question }, ctx) {
+      console.log('Server->client callback. ws =', ctx.ws)
       console.log('Server asked:', question, '– automatically approving!')
-      return true
+      return { approved: true }
     },
   },
-  {
-    url: 'ws://localhost:8080',
-  },
-)
-
+  streamers: {},
+  url: 'ws://localhost:8080',
+})
 async function main() {
   await api.connect()
   console.log('connected!')
-  console.log('Square(5):', await api.server.procs.square(5))
-  console.log('Who am I?:', await api.server.procs.whoami())
-
-  for await (const update of api.server.streamers.doBigJob()) {
+  console.log('Square(5):', await api.server.procs.square({ x: 5 }))
+  console.log('Who am I?:', await api.server.procs.whoami({}))
+  for await (const update of api.server.streamers.doBigJob({})) {
     console.log('Job status:', update)
   }
   console.log('Done!')
   process.exit(0)
 }
-
 setTimeout(() => {
   console.error('Timed out after 5 seconds')
   process.exit(1)
