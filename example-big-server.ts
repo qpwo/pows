@@ -30,11 +30,11 @@ var api = makeTswsServer<Routes, ServerContext>(
       return x * x
     },
 
-    whoami: async (params, ctx) => {
+    whoami: async (_, ctx) => {
       return { name: ctx.userName, userId: ctx.userId }
     },
 
-    doBigJob: async function* ({}, ctx) {
+    doBigJob: async function* (_, ctx) {
       yield 'Starting...'
       await sleep()
 
@@ -53,6 +53,7 @@ var api = makeTswsServer<Routes, ServerContext>(
   {
     middleware: [
       async (ctx, next) => {
+        console.log('Got request on connection:', ctx.ws)
         if (!ctx.userId) {
           const cookie = ctx.req.headers.cookie?.match(/userId=(\d+)/)?.[1]
           if (cookie) {
@@ -61,7 +62,9 @@ var api = makeTswsServer<Routes, ServerContext>(
             ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
           }
         }
-        ctx.userName = 'Alice'
+        if (!ctx.userName) {
+          ctx.userName = 'Alice'
+        }
         await next()
       },
     ],
