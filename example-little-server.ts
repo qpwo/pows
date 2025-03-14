@@ -17,7 +17,6 @@ export interface Routes {
 
 var api = makeTswsServer<Routes>(
   {
-    // serverImpl
     uppercase([s]) {
       return s.toUpperCase()
     },
