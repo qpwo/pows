@@ -4,8 +4,9 @@ import type { Routes } from './example-big-server'
 
 const api = makeTswsClient<Routes, {}>(
   {
-    approve: async question => {
-      return confirm(question)
+    approve: async (question) => {
+      console.log('Server asked:', question, '– automatically approving!')
+      return true
     },
   },
   {
@@ -22,6 +23,8 @@ async function main() {
   for await (const update of api.server.streamers.doBigJob()) {
     console.log('Job status:', update)
   }
+  console.log('Done!')
+  process.exit(0)
 }
 
 setTimeout(() => {
