@@ -24,7 +24,7 @@ interface TswsServerOptions<Context> {
       ws: uWS.WebSocket
       procs: any
       streamers: any
-    }
+    },
   ) => void | Promise<void>
 }
 
@@ -38,7 +38,7 @@ interface TswsServerOptions<Context> {
  */
 export function makeTswsServer<Routes, Context = Record<string, any>>(
   handlers: Partial<Routes['server']['procs'] & Routes['server']['streamers']>,
-  options?: TswsServerOptions<Context>
+  options?: TswsServerOptions<Context>,
 ) {
   const port = options?.port ?? 8080
 
@@ -74,13 +74,13 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
                 side: 'client' as const, // calling the client's side
                 name: methodName,
                 id: reqId,
-                args
+                args,
               }
               ws.send(JSON.stringify(msg))
             })
           }
-        }
-      }
+        },
+      },
     )
   }
 
@@ -109,7 +109,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
               side: 'client' as const,
               name: methodName,
               id: reqId,
-              args
+              args,
             }
             ws.send(JSON.stringify(startMsg))
 
@@ -119,7 +119,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
                 finished = true
                 const stopMsg = {
                   type: 'stream_stop',
-                  id: reqId
+                  id: reqId,
                 }
                 ws.send(JSON.stringify(stopMsg))
               }
@@ -149,8 +149,8 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
               }
             })()
           }
-        }
-      }
+        },
+      },
     )
   }
 
@@ -220,7 +220,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
                 const chunkMsg = {
                   type: 'stream_chunk',
                   id: streamId,
-                  chunk
+                  chunk,
                 }
                 ws.send(JSON.stringify(chunkMsg))
               }
@@ -254,7 +254,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
         const errMsg = {
           type: 'stream_end',
           id,
-          error: `No such server streamer: ${name}`
+          error: `No such server streamer: ${name}`,
         }
         ws.send(JSON.stringify(errMsg))
         return
@@ -266,7 +266,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
           const errMsg = {
             type: 'stream_end',
             id,
-            error: `Handler ${name} is not an async generator`
+            error: `Handler ${name} is not an async generator`,
           }
           ws.send(JSON.stringify(errMsg))
           return
@@ -298,7 +298,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
   const app = uWS.App()
 
   app.ws('/*', {
-    open: (ws) => {
+    open: ws => {
       // Create a fresh context for this connection
       const context = {} as Context & {
         ws: uWS.WebSocket
@@ -325,9 +325,9 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
       })
     },
 
-    close: (ws) => {
+    close: ws => {
       contexts.delete(ws)
-    }
+    },
   })
 
   return {
@@ -336,7 +336,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
      */
     start() {
       return new Promise<void>((resolve, reject) => {
-        app.listen(port, (token) => {
+        app.listen(port, token => {
           if (!token) {
             reject(new Error('Failed to listen on port ' + port))
           } else {
@@ -344,6 +344,6 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
           }
         })
       })
-    }
+    },
   }
 }

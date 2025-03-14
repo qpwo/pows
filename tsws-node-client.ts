@@ -24,16 +24,13 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
   clientHandlers: Partial<Routes['client']['procs'] & Routes['client']['streamers']>,
   options: {
     url: string
-  }
+  },
 ) {
   const wsUrl = options.url
   let ws: WebSocket
 
   // Tracks requests from the client->server. Keyed by request ID.
-  const pendingClientCalls = new Map<
-    string,
-    { resolve: (val: any) => void; reject: (err: any) => void }
-  >()
+  const pendingClientCalls = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>()
 
   // For streaming calls from client->server
   interface StreamState {
@@ -64,13 +61,13 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
               side: 'server' as const,
               name: methodName,
               id,
-              args
+              args,
             }
             ws.send(JSON.stringify(msg))
           })
         }
-      }
-    }
+      },
+    },
   ) as Routes['server']['procs']
 
   /**
@@ -88,7 +85,7 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
           const state: StreamState = {
             done: false,
             queue: [],
-            error: null
+            error: null,
           }
           clientStreams.set(id, state)
 
@@ -99,8 +96,8 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
               side: 'server' as const,
               name: methodName,
               id,
-              args
-            })
+              args,
+            }),
           )
 
           // Return an AsyncGenerator
@@ -131,8 +128,8 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
             }
           })()
         }
-      }
-    }
+      },
+    },
   ) as Routes['server']['streamers']
 
   // Now define how we handle inbound messages (server->client calls or responses).
@@ -280,7 +277,7 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
      */
     server: {
       procs: serverProcs,
-      streamers: serverStreamers
-    }
+      streamers: serverStreamers,
+    },
   }
 }
