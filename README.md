@@ -1,25 +1,30 @@
 # TSWS – TypeScript WebSockets
 
 Type-safe bidirectional RPC and streaming over WebSockets for Node.js and browsers.
-Powered by uWebSocket.js.
 
 ## Packages
 
-- `@tsws/node`: Node.js WebSocket server and client
-- `@tsws/browser`: Browser WebSocket client
+- `tsws-node-server.ts`: Node.js uwebsockets.js-based server
+- `tsws-node-client.ts`: node.js ws-based client
+- `tsws-browser-client.ts`: Browser WebSocket client
 
 ## Minimal Example
 
 ```ts
-// server.ts
-import { startServer } from '@tsws/node';
+// example-little-server.ts
+import { startServer } from './tsws-node-server';
 
 interface Routes {
   server: {
     procs: {
       uppercase(s: string): string;
     };
+    streamers: {}
   };
+  client: {
+    procs: {}
+    streamers: {}
+  }
 };
 
 startServer<Routes>({
@@ -30,12 +35,12 @@ startServer<Routes>({
 
 // ----------------------------------------
 
-// client.ts:
+// example-little-client.ts:
 
-import { connectTo } from '@tsws/browser';
-import type { Routes } from './server';
+import { connectTo } from './tsws-node-client';
+import type { Routes } from './example-little-server';
 
-const api = connectTo<Routes>();
+const api = connectTo<Routes>({},{});
 
 async function main() {
   const upper = await api.server.procs.uppercase('foo');
@@ -47,11 +52,9 @@ main();
 
 ## Larger Example (RPC, streams, middleware)
 
-A server with a browser client showcasing async RPC, streams, middleware, and lifecycle hooks:
-
 ```ts
-// server.ts
-import { startServer } from '@tsws/node';
+// example-big-server.ts
+import { startServer } from './tsws-node-server';
 import type uWebSocket from 'uwebsockets.js';
 
 
@@ -69,6 +72,7 @@ interface Routes {
     procs: {
       approve(question: string): Promise<boolean>;
     };
+    streamers: {}
   };
 }
 
@@ -126,9 +130,9 @@ function sleep(ms = 1000) {
 
 // ----------------------------------------
 
-// client.ts (browser)
-import { connectTo } from '@tsws/browser';
-import type { Routes } from './server';
+// example-client-server.ts
+import { connectTo } from './tsws-node-client';
+import type { Routes } from './example-big-server';
 
 const api = connectTo<Routes, {}>({
   approve: async (question) => {
@@ -138,15 +142,14 @@ const api = connectTo<Routes, {}>({
   url: 'ws://localhost:8080',
 });
 
-async function run() {
+async function main() {
   console.log('Square(5):', await api.server.procs.square(5));
   console.log('Who am I?:', await api.server.procs.whoami());
 
   for await (const update of api.server.streamers.doBigJob()) {
     console.log('Job status:', update);
   }
-
-  const approved = await api.client.procs.confirm('Nothing wrong with self-calls!')
 }
 
-run()
+main()
+```
