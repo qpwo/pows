@@ -18,9 +18,9 @@ type Ws = uWS.WebSocket<unknown>
  * So we want the *exported* type to be (args: X, ctx: ServerCtx) => Return
  * so the user's code can do two parameters without error.
  */
-type ServerProc<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
+type ServerProcImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type ServerStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
+type ServerStreamerImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
 /**
  * CLIENT-SIDE ROUTE SIGNATURES
@@ -30,16 +30,9 @@ type ServerStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A,
  * but we implement "async approve({ question }, ctx) { ... }".
  * So again, we want the final shape to be (args, ctx).
  */
-// type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
-//   ? (args: A, ctx: Ctx) => R
-//   : never
+type CallClientProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
-// type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
-//   ? (args: A, ctx: Ctx) => R
-//   : never
-type ClientProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
-
-type ClientStreamer<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
+type CallClientStreamer<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
 /**
  * The user’s "Routes" interface is conceptually:
@@ -77,13 +70,13 @@ export type RoutesConstraint = {
 export type TswsServerContext<Routes extends RoutesConstraint, ServerContext> = ServerContext & {
   ws: Ws
   clientProcs: {
-    [K in keyof Routes['client']['procs']]: ClientProc<
+    [K in keyof Routes['client']['procs']]: CallClientProc<
       Routes['client']['procs'][K]
       // ,TswsServerContext<Routes, ServerContext>
     >
   }
   clientStreamers: {
-    [K in keyof Routes['client']['streamers']]: ClientStreamer<
+    [K in keyof Routes['client']['streamers']]: CallClientStreamer<
       Routes['client']['streamers'][K]
       // ,TswsServerContext<Routes, ServerContext>
     >
@@ -96,10 +89,10 @@ export type TswsServerContext<Routes extends RoutesConstraint, ServerContext> = 
  * we produce (args: {x:number}, ctx: TswsServerContext<...>) => Promise<{result: number}>
  */
 type TswsServerProcs<Routes extends RoutesConstraint, ServerContext> = {
-  [K in keyof Routes['server']['procs']]: ServerProc<Routes['server']['procs'][K], TswsServerContext<Routes, ServerContext>>
+  [K in keyof Routes['server']['procs']]: ServerProcImpl<Routes['server']['procs'][K], TswsServerContext<Routes, ServerContext>>
 }
 type TswsServerStreamers<Routes extends RoutesConstraint, ServerContext> = {
-  [K in keyof Routes['server']['streamers']]: ServerStreamer<Routes['server']['streamers'][K], TswsServerContext<Routes, ServerContext>>
+  [K in keyof Routes['server']['streamers']]: ServerStreamerImpl<Routes['server']['streamers'][K], TswsServerContext<Routes, ServerContext>>
 }
 
 /**

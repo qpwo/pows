@@ -5,9 +5,9 @@ import { RoutesConstraint } from './tsws-node-server'
  * Browser-based client with the same approach as tsws-node-client,
  * but using native `WebSocket` instead of `ws`.
  */
-type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
+type ClientProcImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
+type ClientStreamerImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
 type CallServerProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
@@ -18,10 +18,10 @@ export type TswsBrowserClientContext<Routes extends RoutesConstraint, ClientCont
 }
 
 type TswsBrowserClientProcs<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['procs']]: ClientProc<Routes['client']['procs'][K], TswsBrowserClientContext<Routes, ClientContext>>
+  [K in keyof Routes['client']['procs']]: ClientProcImpl<Routes['client']['procs'][K], TswsBrowserClientContext<Routes, ClientContext>>
 }
 type TswsBrowserClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['streamers']]: ClientStreamer<
+  [K in keyof Routes['client']['streamers']]: ClientStreamerImpl<
     Routes['client']['streamers'][K],
     TswsBrowserClientContext<Routes, ClientContext>
   >

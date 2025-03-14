@@ -13,9 +13,9 @@ import { RoutesConstraint } from './tsws-node-server'
  * We want the final type: (args: { question: string }, ctx: TswsClientContext<...>) => ...
  * so destructuring "question" is typed, and "ctx" is typed.
  */
-type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
+type ClientProcImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
+type ClientStreamerImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
 /**
  * For calling the *server* from the client, we want to expose "server.procs.foo"
@@ -43,10 +43,10 @@ export type TswsClientContext<Routes extends RoutesConstraint, ClientContext> = 
 }
 
 type TswsClientProcs<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['procs']]: ClientProc<Routes['client']['procs'][K], TswsClientContext<Routes, ClientContext>>
+  [K in keyof Routes['client']['procs']]: ClientProcImpl<Routes['client']['procs'][K], TswsClientContext<Routes, ClientContext>>
 }
 type TswsClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['streamers']]: ClientStreamer<Routes['client']['streamers'][K], TswsClientContext<Routes, ClientContext>>
+  [K in keyof Routes['client']['streamers']]: ClientStreamerImpl<Routes['client']['streamers'][K], TswsClientContext<Routes, ClientContext>>
 }
 
 export interface TswsClientOpts<Routes extends RoutesConstraint, ClientContext> {
