@@ -1,14 +1,12 @@
 // tsws-browser-client.ts
+
 import { RoutesConstraint } from './tsws-node-server'
 
 /**
- * Browser version of the TSWS client, using the standard WebSocket API.
+ * A browser-based client version, using the built-in WebSocket.
  */
 
-export type TswsBrowserClientContext<
-  Routes extends RoutesConstraint,
-  ClientContext
-> = ClientContext & {
+export type TswsBrowserClientContext<Routes extends RoutesConstraint, ClientContext> = ClientContext & {
   ws: WebSocket
 }
 
@@ -44,12 +42,12 @@ export function makeTswsBrowserClient<
   Routes extends RoutesConstraint,
   ClientContext = {}
 >(opts: TswsBrowserClientOpts<Routes, ClientContext>): TswsBrowserClient<Routes, ClientContext> {
-  const { procs, streamers, url, onOpen, onClose } = opts
+  const { procs: clientProcs, streamers: clientStreamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
   let connected = false
-
   let nextReqId = 1
+
   const pendingCalls = new Map<
     number,
     {
@@ -81,15 +79,16 @@ export function makeTswsBrowserClient<
           if (onOpen) {
             try {
               await onOpen(clientCtx)
-            } catch (e) {
-              console.error('Error in onOpen:', e)
+            } catch (err) {
+              console.error('onOpen error:', err)
             }
           }
           resolve()
         }
         ws.onmessage = (ev) => {
-          handleMessage(ev.data).catch((err) => {
-            console.error('Error handling message:', err)
+          const dataStr = typeof ev.data === 'string' ? ev.data : ''
+          handleMessage(dataStr).catch((err) => {
+            console.error('Error in handleMessage:', err)
           })
         }
         ws.onerror = (err) => {
@@ -103,44 +102,39 @@ export function makeTswsBrowserClient<
           pendingCalls.clear()
           if (onClose) {
             Promise.resolve(onClose(clientCtx)).catch((err) => {
-              console.error('Error in onClose:', err)
+              console.error('onClose error:', err)
             })
           }
         }
       })
     },
+
     close() {
       if (ws && connected) {
         ws.close()
       }
       connected = false
     },
+
+    // Provide dynamic proxies for server procedures/streamers
     server: {
-      procs: {} as any,
-      streamers: {} as any,
+      procs: new Proxy(
+        {},
+        {
+          get(_target, methodName) {
+            return (args: any) => callRemoteProc('server', methodName as string, args)
+          },
+        }
+      ) as any,
+      streamers: new Proxy(
+        {},
+        {
+          get(_target, methodName) {
+            return (args: any) => callRemoteStreamer('server', methodName as string, args)
+          },
+        }
+      ) as any,
     },
-  }
-
-  // Fill in "server.procs"
-  for (const methodName of Object.keys(procsForServer().serverProcs)) {
-    (api.server.procs as any)[methodName] = (args: any) => {
-      return callRemoteProc('server', methodName, args)
-    }
-  }
-  // Fill in "server.streamers"
-  for (const methodName of Object.keys(procsForServer().serverStreamers)) {
-    (api.server.streamers as any)[methodName] = (args: any) => {
-      return callRemoteStreamer('server', methodName, args)
-    }
-  }
-
-  function procsForServer() {
-    return {
-      serverProcs: ({} as Routes['server']['procs']),
-      serverStreamers: ({} as Routes['server']['streamers']),
-      clientProcs: procs,
-      clientStreamers: streamers,
-    }
   }
 
   function sendJson(obj: any) {
@@ -167,7 +161,6 @@ export function makeTswsBrowserClient<
 
   function callRemoteStreamer(side: 'server' | 'client', method: string, args: any): AsyncGenerator<any> {
     const reqId = nextReqId++
-
     let pullController: ((chunk: any) => void) | null = null
     let endController: (() => void) | null = null
     let errorController: ((err: any) => void) | null = null
@@ -221,11 +214,8 @@ export function makeTswsBrowserClient<
       streaming: true,
       streamController: {
         push: (chunk) => {
-          if (pullController) {
-            pullController(chunk)
-          } else {
-            queue.push(chunk)
-          }
+          if (pullController) pullController(chunk)
+          else queue.push(chunk)
         },
         end: () => {
           if (endController) endController()
@@ -243,13 +233,13 @@ export function makeTswsBrowserClient<
     let msg: any
     try {
       msg = JSON.parse(msgStr)
-    } catch (e) {
-      console.error('Failed to parse message:', msgStr)
+    } catch (err) {
+      console.error('Invalid JSON from server:', msgStr)
       return
     }
 
     if (msg.type === 'rpc') {
-      // The server is calling our client procs?
+      // The server is calling the client
       const side = msg.side
       const reqId = msg.reqId
       const method = msg.method
@@ -257,31 +247,36 @@ export function makeTswsBrowserClient<
       const isStream = !!msg.streaming
 
       if (side === 'client') {
-        // The server wants to call our client
-        const fn = (isStream ? streamers[method] : procs[method]) as any
-        if (!fn) {
-          sendJson({
-            type: 'rpc-res',
-            reqId,
-            ok: false,
-            error: `No client ${isStream ? 'streamer' : 'proc'} named '${method}'`,
-          })
-          return
-        }
+        // normal or streaming call to client
         if (!isStream) {
-          try {
-            const result = await fn(args, clientCtx)
-            sendJson({ type: 'rpc-res', reqId, ok: true, data: result })
-          } catch (err: any) {
+          const fn = clientProcs[method]
+          if (!fn) {
             sendJson({
               type: 'rpc-res',
               reqId,
               ok: false,
-              error: err?.message || String(err),
+              error: `No client proc named '${method}'`,
             })
+            return
+          }
+          try {
+            const result = await fn(args, clientCtx)
+            sendJson({ type: 'rpc-res', reqId, ok: true, data: result })
+          } catch (err: any) {
+            sendJson({ type: 'rpc-res', reqId, ok: false, error: err?.message || String(err) })
           }
         } else {
           // streaming
+          const fn = clientStreamers[method]
+          if (!fn) {
+            sendJson({
+              type: 'rpc-res',
+              reqId,
+              ok: false,
+              error: `No client streamer named '${method}'`,
+            })
+            return
+          }
           let gen: AsyncGenerator<any>
           try {
             gen = fn(args, clientCtx)
@@ -294,49 +289,50 @@ export function makeTswsBrowserClient<
             })
             return
           }
-          // success
+          // indicate success
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
           pushClientStream(reqId, gen).catch((err) => {
             console.error('Client streamer error:', err)
           })
         }
       } else {
-        // side=server from server => confusion. ignore
+        // side='server' from the server => possibly an error
         sendJson({
           type: 'rpc-res',
           reqId,
           ok: false,
-          error: 'Got side=server call on the client. Ignoring.',
+          error: "Got side='server' call on the client; ignoring.",
         })
       }
     } else if (msg.type === 'rpc-res') {
-      const pending = pendingCalls.get(msg.reqId)
-      if (!pending) return
+      const reqId = msg.reqId
+      const pc = pendingCalls.get(reqId)
+      if (!pc) return
       if (msg.ok) {
         if (!msg.streaming) {
-          pendingCalls.delete(msg.reqId)
-          pending.resolve(msg.data)
+          pendingCalls.delete(reqId)
+          pc.resolve(msg.data)
         } else {
-          pending.resolve(undefined)
+          pc.resolve(undefined)
         }
       } else {
-        pendingCalls.delete(msg.reqId)
-        pending.reject(new Error(msg.error || 'Unknown error'))
+        pendingCalls.delete(reqId)
+        pc.reject(new Error(msg.error || 'Unknown error'))
       }
     } else if (msg.type === 'stream-chunk') {
-      const pending = pendingCalls.get(msg.reqId)
-      if (!pending || !pending.streaming) return
-      pending.streamController?.push(msg.chunk)
+      const pc = pendingCalls.get(msg.reqId)
+      if (!pc || !pc.streaming) return
+      pc.streamController?.push(msg.chunk)
     } else if (msg.type === 'stream-end') {
-      const pending = pendingCalls.get(msg.reqId)
-      if (!pending || !pending.streaming) return
+      const pc = pendingCalls.get(msg.reqId)
+      if (!pc || !pc.streaming) return
       pendingCalls.delete(msg.reqId)
-      pending.streamController?.end()
+      pc.streamController?.end()
     } else if (msg.type === 'stream-error') {
-      const pending = pendingCalls.get(msg.reqId)
-      if (!pending || !pending.streaming) return
+      const pc = pendingCalls.get(msg.reqId)
+      if (!pc || !pc.streaming) return
       pendingCalls.delete(msg.reqId)
-      pending.streamController?.error(new Error(msg.error || 'Unknown stream error'))
+      pc.streamController?.error(new Error(msg.error || 'Unknown stream error'))
     }
   }
 
