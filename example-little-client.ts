@@ -7,6 +7,7 @@ const api = makeTswsClient<Routes>({}, { url: 'ws://localhost:8080' })
 
 async function main() {
   await api.connect()
+  console.log('connected!')
   const upper = await api.server.procs.uppercase('foo')
   console.log('Upper:', upper)
 }
