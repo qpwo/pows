@@ -4,7 +4,7 @@ import type { Routes } from './example-big-server'
 
 const api = makeTswsClient<Routes, {}>(
   {
-    approve: async (question) => {
+    approve: async question => {
       console.log('Server asked:', question, '– automatically approving!')
       return true
     },

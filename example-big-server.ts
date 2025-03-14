@@ -1,6 +1,5 @@
 // example-big-server.ts
 import { makeTswsServer } from './tsws-node-server'
-import { type WebSocket } from 'uWebSockets.js'
 
 export interface Routes {
   server: {
@@ -22,8 +21,7 @@ export interface Routes {
 
 type ServerContext = {
   userName: string
-  userId: number | null
-  uws: WebSocket
+  userId: number
 }
 
 var api = makeTswsServer<Routes, ServerContext>(
@@ -36,11 +34,11 @@ var api = makeTswsServer<Routes, ServerContext>(
       return { name: ctx.userName, userId: ctx.userId }
     },
 
-    doBigJob: async function* () {
+    doBigJob: async function* ({}, ctx) {
       yield 'Starting...'
       await sleep()
 
-      const ok = await api.client.procs.approve('Continue with big job?')
+      const ok = await ctx.procs.approve('Continue with big job?')
       if (!ok) {
         yield 'Cancelled by user.'
         return
@@ -55,11 +53,14 @@ var api = makeTswsServer<Routes, ServerContext>(
   {
     middleware: [
       async (ctx, next) => {
-        ctx.uws = ctx.rawSocket as uWebSocket
-        const req = ctx.uws.upgradeReq // Use uWebSocket's request object directly
-        // Note: In a real application, use a robust cookie parsing library.
-        const userId = req.headers.cookie?.match(/userId=(\d+)/)?.[1]
-        ctx.userId = userId ? parseInt(userId, 10) : null
+        if (!ctx.userId) {
+          const cookie = ctx.req.headers.cookie?.match(/userId=(\d+)/)?.[1]
+          if (cookie) {
+            ctx.userId = parseInt(cookie, 10)
+          } else {
+            ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
+          }
+        }
         ctx.userName = 'Alice'
         await next()
       },
