@@ -52,14 +52,9 @@ var api = makeTswsServer<Routes, ServerContext>(
   },
   {
     async onConnection(ctx) {
-      console.log('Got request on connection:', ctx.ws)
+      console.log('New connection:', ctx.ws)
       if (!ctx.userId) {
-        const cookie = ctx.req.headers.cookie?.match(/userId=(\d+)/)?.[1]
-        if (cookie) {
-          ctx.userId = parseInt(cookie, 10)
-        } else {
-          ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
-        }
+        ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
       }
       if (!ctx.userName) {
         ctx.userName = 'Alice'
