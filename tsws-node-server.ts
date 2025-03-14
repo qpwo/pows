@@ -18,13 +18,9 @@ type Ws = uWS.WebSocket<unknown>
  * So we want the *exported* type to be (args: X, ctx: ServerCtx) => Return
  * so the user's code can do two parameters without error.
  */
-type ServerProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
-  ? (args: A, ctx: Ctx) => R
-  : never
+type ServerProc<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type ServerStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
-  ? (args: A, ctx: Ctx) => R
-  : never
+type ServerStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
 /**
  * CLIENT-SIDE ROUTE SIGNATURES
@@ -41,13 +37,9 @@ type ServerStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
 // type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
 //   ? (args: A, ctx: Ctx) => R
 //   : never
-type ClientProc<Fn> = Fn extends (args: infer A) => infer R
-  ? (args: A) => R
-  : never
+type ClientProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
-type ClientStreamer<Fn> = Fn extends (args: infer A) => infer R
-  ? (args: A) => R
-  : never
+type ClientStreamer<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
 /**
  * The user’s "Routes" interface is conceptually:
@@ -66,11 +58,11 @@ type ClientStreamer<Fn> = Fn extends (args: infer A) => infer R
  */
 export type RoutesConstraint = {
   server: {
-    procs: Record<string, (args: any) => Promise<any>>,
+    procs: Record<string, (args: any) => Promise<any>>
     streamers: Record<string, (args: any) => AsyncGenerator<any>>
-  },
+  }
   client: {
-    procs: Record<string, (args: any) => Promise<any>>,
+    procs: Record<string, (args: any) => Promise<any>>
     streamers: Record<string, (args: any) => AsyncGenerator<any>>
   }
 }
@@ -82,22 +74,21 @@ export type RoutesConstraint = {
  *   - clientStreamers: calls to the client's streamers
  * plus any user-defined fields in "ServerContext".
  */
-export type TswsServerContext<Routes extends RoutesConstraint, ServerContext> =
-  ServerContext & {
-    ws: Ws
-    clientProcs: {
-      [K in keyof Routes['client']['procs']]: ClientProc<
-        Routes['client']['procs'][K]
-        // ,TswsServerContext<Routes, ServerContext>
-      >
-    }
-    clientStreamers: {
-      [K in keyof Routes['client']['streamers']]: ClientStreamer<
-        Routes['client']['streamers'][K]
-        // ,TswsServerContext<Routes, ServerContext>
-      >
-    }
+export type TswsServerContext<Routes extends RoutesConstraint, ServerContext> = ServerContext & {
+  ws: Ws
+  clientProcs: {
+    [K in keyof Routes['client']['procs']]: ClientProc<
+      Routes['client']['procs'][K]
+      // ,TswsServerContext<Routes, ServerContext>
+    >
   }
+  clientStreamers: {
+    [K in keyof Routes['client']['streamers']]: ClientStreamer<
+      Routes['client']['streamers'][K]
+      // ,TswsServerContext<Routes, ServerContext>
+    >
+  }
+}
 
 /**
  * The server procs we expect from the user: for each route method
@@ -105,31 +96,20 @@ export type TswsServerContext<Routes extends RoutesConstraint, ServerContext> =
  * we produce (args: {x:number}, ctx: TswsServerContext<...>) => Promise<{result: number}>
  */
 type TswsServerProcs<Routes extends RoutesConstraint, ServerContext> = {
-  [K in keyof Routes['server']['procs']]: ServerProc<
-    Routes['server']['procs'][K],
-    TswsServerContext<Routes, ServerContext>
-  >
+  [K in keyof Routes['server']['procs']]: ServerProc<Routes['server']['procs'][K], TswsServerContext<Routes, ServerContext>>
 }
 type TswsServerStreamers<Routes extends RoutesConstraint, ServerContext> = {
-  [K in keyof Routes['server']['streamers']]: ServerStreamer<
-    Routes['server']['streamers'][K],
-    TswsServerContext<Routes, ServerContext>
-  >
+  [K in keyof Routes['server']['streamers']]: ServerStreamer<Routes['server']['streamers'][K], TswsServerContext<Routes, ServerContext>>
 }
 
 /**
  * Options for makeTswsServer.
  */
-export interface TswsServerOpts<
-  Routes extends RoutesConstraint,
-  ServerContext
-> {
+export interface TswsServerOpts<Routes extends RoutesConstraint, ServerContext> {
   procs: TswsServerProcs<Routes, ServerContext>
   streamers: TswsServerStreamers<Routes, ServerContext>
   port?: number
-  onConnection?: (
-    ctx: TswsServerContext<Routes, ServerContext>
-  ) => void | Promise<void>
+  onConnection?: (ctx: TswsServerContext<Routes, ServerContext>) => void | Promise<void>
 }
 
 /**
@@ -144,16 +124,10 @@ export interface TswsServer<Routes extends RoutesConstraint, ServerContext> {
  * `(args: any, ctx: any) => any` but we *export* the typed version above
  * so that user code type-checks perfectly with two parameters.
  */
-export function makeTswsServer<
-  Routes extends RoutesConstraint,
-  ServerContext = {}
->(opts: TswsServerOpts<Routes, ServerContext>): TswsServer<Routes, ServerContext> {
-  const {
-    procs,
-    streamers,
-    port = 8080,
-    onConnection
-  } = opts
+export function makeTswsServer<Routes extends RoutesConstraint, ServerContext = {}>(
+  opts: TswsServerOpts<Routes, ServerContext>,
+): TswsServer<Routes, ServerContext> {
+  const { procs, streamers, port = 8080, onConnection } = opts
 
   // Internally, we treat the user procs & streamers as any => any:
   const internalProcs = procs as Record<string, (args: any, ctx: any) => any>
@@ -185,10 +159,10 @@ export function makeTswsServer<
 
   const app = uWS.App().ws('/*', {
     open: (ws: Ws) => {
-      (ws as any)._tswsData = {
+      ;(ws as any)._tswsData = {
         nextReqId: 1,
         pendingCalls: new Map(),
-        activeServerStreams: new Map()
+        activeServerStreams: new Map(),
       } as PerSocketData
 
       // Build TswsServerContext
@@ -196,21 +170,27 @@ export function makeTswsServer<
       const fullCtx: TswsServerContext<Routes, ServerContext> = {
         ...baseCtx,
         ws,
-        clientProcs: new Proxy({}, {
-          get(_t, methodName) {
-            return (args: any) => callRemoteProc(ws, 'client', methodName as string, args)
-          }
-        }) as any,
-        clientStreamers: new Proxy({}, {
-          get(_t, methodName) {
-            return (args: any) => callRemoteStreamer(ws, 'client', methodName as string, args)
-          }
-        }) as any
+        clientProcs: new Proxy(
+          {},
+          {
+            get(_t, methodName) {
+              return (args: any) => callRemoteProc(ws, 'client', methodName as string, args)
+            },
+          },
+        ) as any,
+        clientStreamers: new Proxy(
+          {},
+          {
+            get(_t, methodName) {
+              return (args: any) => callRemoteStreamer(ws, 'client', methodName as string, args)
+            },
+          },
+        ) as any,
       }
       wsToContext.set(ws, fullCtx)
 
       if (onConnection) {
-        Promise.resolve(onConnection(fullCtx)).catch((err) => {
+        Promise.resolve(onConnection(fullCtx)).catch(err => {
           console.error('onConnection error:', err)
         })
       }
@@ -225,7 +205,7 @@ export function makeTswsServer<
         console.error('Invalid JSON from client:', e)
         return
       }
-      handleMessage(ws, msg).catch((err) => {
+      handleMessage(ws, msg).catch(err => {
         console.error('handleMessage error:', err)
       })
     },
@@ -292,7 +272,7 @@ export function makeTswsServer<
           return
         } else {
           await new Promise<void>((resolve, reject) => {
-            pullController = (chunk) => {
+            pullController = chunk => {
               pullController = null
               queue.push(chunk)
               resolve()
@@ -303,7 +283,7 @@ export function makeTswsServer<
               ended = true
               resolve()
             }
-            errorController = (err) => {
+            errorController = err => {
               pullController = null
               endController = null
               errorController = null
@@ -316,7 +296,7 @@ export function makeTswsServer<
 
     data.pendingCalls.set(reqId, {
       resolve: () => {},
-      reject: (err) => {
+      reject: err => {
         if (errorController) errorController(err)
       },
       streaming: true,
@@ -404,7 +384,7 @@ export function makeTswsServer<
             streaming: true,
           })
           data.activeServerStreams.set(reqId, gen)
-          pushServerStream(ws, reqId, gen).catch((err) => {
+          pushServerStream(ws, reqId, gen).catch(err => {
             console.error('pushServerStream error:', err)
           })
         }
@@ -470,7 +450,7 @@ export function makeTswsServer<
   return {
     start() {
       return new Promise<void>((resolve, reject) => {
-        app.listen(port, (token) => {
+        app.listen(port, token => {
           if (!token) {
             return reject(new Error(`Failed to listen on port ${port}`))
           }

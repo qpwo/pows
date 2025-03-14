@@ -13,25 +13,17 @@ import { RoutesConstraint } from './tsws-node-server'
  * We want the final type: (args: { question: string }, ctx: TswsClientContext<...>) => ...
  * so destructuring "question" is typed, and "ctx" is typed.
  */
-type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
-  ? (args: A, ctx: Ctx) => R
-  : never
+type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
-  ? (args: A, ctx: Ctx) => R
-  : never
+type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
 /**
  * For calling the *server* from the client, we want to expose "server.procs.foo"
  * as a single-parameter method (args) => ReturnType, with *no* `ctx`.
  */
-type CallServerProc<Fn> = Fn extends (args: infer A) => infer R
-  ? (args: A) => R
-  : never
+type CallServerProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
-type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R
-  ? (args: A) => R
-  : never
+type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
 /**
  * The user’s "Routes" interface is conceptually:
@@ -46,28 +38,18 @@ type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R
  *     }
  *   }
  */
-export type TswsClientContext<Routes extends RoutesConstraint, ClientContext> =
-  ClientContext & {
-    ws: WebSocket
-  }
+export type TswsClientContext<Routes extends RoutesConstraint, ClientContext> = ClientContext & {
+  ws: WebSocket
+}
 
 type TswsClientProcs<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['procs']]: ClientProc<
-    Routes['client']['procs'][K],
-    TswsClientContext<Routes, ClientContext>
-  >
+  [K in keyof Routes['client']['procs']]: ClientProc<Routes['client']['procs'][K], TswsClientContext<Routes, ClientContext>>
 }
 type TswsClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['streamers']]: ClientStreamer<
-    Routes['client']['streamers'][K],
-    TswsClientContext<Routes, ClientContext>
-  >
+  [K in keyof Routes['client']['streamers']]: ClientStreamer<Routes['client']['streamers'][K], TswsClientContext<Routes, ClientContext>>
 }
 
-export interface TswsClientOpts<
-  Routes extends RoutesConstraint,
-  ClientContext
-> {
+export interface TswsClientOpts<Routes extends RoutesConstraint, ClientContext> {
   // The user's local implementations for client procs & streamers:
   procs: TswsClientProcs<Routes, ClientContext>
   streamers: TswsClientStreamers<Routes, ClientContext>
@@ -97,10 +79,9 @@ export interface TswsClient<Routes extends RoutesConstraint, ClientContext> {
 /**
  * Implementation
  */
-export function makeTswsClient<
-  Routes extends RoutesConstraint,
-  ClientContext = {}
->(opts: TswsClientOpts<Routes, ClientContext>): TswsClient<Routes, ClientContext> {
+export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = {}>(
+  opts: TswsClientOpts<Routes, ClientContext>,
+): TswsClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
@@ -123,7 +104,7 @@ export function makeTswsClient<
 
   // The user’s client context
   const clientCtx: TswsClientContext<Routes, ClientContext> = {
-    ...( {} as ClientContext ),
+    ...({} as ClientContext),
     get ws() {
       return ws!
     },
@@ -150,12 +131,12 @@ export function makeTswsClient<
           }
           resolve()
         }
-        ws.onmessage = (ev) => {
-          handleMessage(String(ev.data)).catch((err) => {
+        ws.onmessage = ev => {
+          handleMessage(String(ev.data)).catch(err => {
             console.error('handleMessage error:', err)
           })
         }
-        ws.onerror = (err) => {
+        ws.onerror = err => {
           console.error('WebSocket error:', err)
         }
         ws.onclose = () => {
@@ -165,7 +146,7 @@ export function makeTswsClient<
           }
           pendingCalls.clear()
           if (onClose) {
-            Promise.resolve(onClose(clientCtx)).catch((err) => {
+            Promise.resolve(onClose(clientCtx)).catch(err => {
               console.error('onClose error:', err)
             })
           }
@@ -181,16 +162,22 @@ export function makeTswsClient<
     },
 
     server: {
-      procs: new Proxy({}, {
-        get(_target, methodName) {
-          return (args: any) => callRemoteProc('server', methodName as string, args)
-        }
-      }) as any,
-      streamers: new Proxy({}, {
-        get(_target, methodName) {
-          return (args: any) => callRemoteStreamer('server', methodName as string, args)
-        }
-      }) as any,
+      procs: new Proxy(
+        {},
+        {
+          get(_target, methodName) {
+            return (args: any) => callRemoteProc('server', methodName as string, args)
+          },
+        },
+      ) as any,
+      streamers: new Proxy(
+        {},
+        {
+          get(_target, methodName) {
+            return (args: any) => callRemoteStreamer('server', methodName as string, args)
+          },
+        },
+      ) as any,
     },
   }
 
@@ -241,7 +228,7 @@ export function makeTswsClient<
           return
         } else {
           await new Promise<void>((resolve, reject) => {
-            pullController = (chunk) => {
+            pullController = chunk => {
               pullController = null
               queue.push(chunk)
               resolve()
@@ -252,7 +239,7 @@ export function makeTswsClient<
               ended = true
               resolve()
             }
-            errorController = (err) => {
+            errorController = err => {
               pullController = null
               endController = null
               errorController = null
@@ -265,7 +252,7 @@ export function makeTswsClient<
 
     pendingCalls.set(reqId, {
       resolve: () => {},
-      reject: (err) => {
+      reject: err => {
         if (errorController) errorController(err)
       },
       streaming: true,
@@ -350,7 +337,7 @@ export function makeTswsClient<
             return
           }
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
-          pushClientStream(reqId, gen).catch((err) => {
+          pushClientStream(reqId, gen).catch(err => {
             console.error('Client streamer error:', err)
           })
         }

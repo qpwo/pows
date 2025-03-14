@@ -27,7 +27,7 @@ async function main() {
   } catch (err_) {
     const err = err_ as Error
     if (err.message !== myMsg) {
-      console.log("Got error yay", err.message)
+      console.log('Got error yay', err.message)
     } else {
       console.error('Error not thrown as expected:', err.message)
     }

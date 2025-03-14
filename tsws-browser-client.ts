@@ -5,32 +5,20 @@ import { RoutesConstraint } from './tsws-node-server'
  * Browser-based client with the same approach as tsws-node-client,
  * but using native `WebSocket` instead of `ws`.
  */
-type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
-  ? (args: A, ctx: Ctx) => R
-  : never
+type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
-  ? (args: A, ctx: Ctx) => R
-  : never
+type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type CallServerProc<Fn> = Fn extends (args: infer A) => infer R
-  ? (args: A) => R
-  : never
+type CallServerProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
-type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R
-  ? (args: A) => R
-  : never
+type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
 
-export type TswsBrowserClientContext<Routes extends RoutesConstraint, ClientContext> =
-  ClientContext & {
-    ws: WebSocket
-  }
+export type TswsBrowserClientContext<Routes extends RoutesConstraint, ClientContext> = ClientContext & {
+  ws: WebSocket
+}
 
 type TswsBrowserClientProcs<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['procs']]: ClientProc<
-    Routes['client']['procs'][K],
-    TswsBrowserClientContext<Routes, ClientContext>
-  >
+  [K in keyof Routes['client']['procs']]: ClientProc<Routes['client']['procs'][K], TswsBrowserClientContext<Routes, ClientContext>>
 }
 type TswsBrowserClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
   [K in keyof Routes['client']['streamers']]: ClientStreamer<
@@ -39,10 +27,7 @@ type TswsBrowserClientStreamers<Routes extends RoutesConstraint, ClientContext> 
   >
 }
 
-export interface TswsBrowserClientOpts<
-  Routes extends RoutesConstraint,
-  ClientContext
-> {
+export interface TswsBrowserClientOpts<Routes extends RoutesConstraint, ClientContext> {
   procs: TswsBrowserClientProcs<Routes, ClientContext>
   streamers: TswsBrowserClientStreamers<Routes, ClientContext>
   url: string
@@ -63,10 +48,9 @@ export interface TswsBrowserClient<Routes extends RoutesConstraint, ClientContex
   }
 }
 
-export function makeTswsBrowserClient<
-  Routes extends RoutesConstraint,
-  ClientContext = {}
->(opts: TswsBrowserClientOpts<Routes, ClientContext>): TswsBrowserClient<Routes, ClientContext> {
+export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientContext = {}>(
+  opts: TswsBrowserClientOpts<Routes, ClientContext>,
+): TswsBrowserClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
@@ -88,7 +72,7 @@ export function makeTswsBrowserClient<
   >()
 
   const clientCtx: TswsBrowserClientContext<Routes, ClientContext> = {
-    ...( {} as ClientContext ),
+    ...({} as ClientContext),
     get ws() {
       return ws!
     },
@@ -113,13 +97,13 @@ export function makeTswsBrowserClient<
           }
           resolve()
         }
-        ws.onmessage = (ev) => {
+        ws.onmessage = ev => {
           const dataStr = typeof ev.data === 'string' ? ev.data : ''
-          handleMessage(dataStr).catch((err) => {
+          handleMessage(dataStr).catch(err => {
             console.error('handleMessage error:', err)
           })
         }
-        ws.onerror = (err) => {
+        ws.onerror = err => {
           console.error('WebSocket error:', err)
         }
         ws.onclose = () => {
@@ -129,7 +113,7 @@ export function makeTswsBrowserClient<
           }
           pendingCalls.clear()
           if (onClose) {
-            Promise.resolve(onClose(clientCtx)).catch((err) => {
+            Promise.resolve(onClose(clientCtx)).catch(err => {
               console.error('onClose error:', err)
             })
           }
@@ -145,16 +129,22 @@ export function makeTswsBrowserClient<
     },
 
     server: {
-      procs: new Proxy({}, {
-        get(_t, methodName) {
-          return (args: any) => callRemoteProc('server', methodName as string, args)
-        }
-      }) as any,
-      streamers: new Proxy({}, {
-        get(_t, methodName) {
-          return (args: any) => callRemoteStreamer('server', methodName as string, args)
-        }
-      }) as any,
+      procs: new Proxy(
+        {},
+        {
+          get(_t, methodName) {
+            return (args: any) => callRemoteProc('server', methodName as string, args)
+          },
+        },
+      ) as any,
+      streamers: new Proxy(
+        {},
+        {
+          get(_t, methodName) {
+            return (args: any) => callRemoteStreamer('server', methodName as string, args)
+          },
+        },
+      ) as any,
     },
   }
 
@@ -204,7 +194,7 @@ export function makeTswsBrowserClient<
           return
         } else {
           await new Promise<void>((resolve, reject) => {
-            pullController = (chunk) => {
+            pullController = chunk => {
               pullController = null
               queue.push(chunk)
               resolve()
@@ -215,7 +205,7 @@ export function makeTswsBrowserClient<
               ended = true
               resolve()
             }
-            errorController = (err) => {
+            errorController = err => {
               pullController = null
               endController = null
               errorController = null
@@ -228,7 +218,7 @@ export function makeTswsBrowserClient<
 
     pendingCalls.set(reqId, {
       resolve: () => {},
-      reject: (err) => {
+      reject: err => {
         if (errorController) errorController(err)
       },
       streaming: true,
@@ -312,7 +302,7 @@ export function makeTswsBrowserClient<
             return
           }
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
-          pushClientStream(reqId, gen).catch((err) => {
+          pushClientStream(reqId, gen).catch(err => {
             console.error('Browser client streamer error:', err)
           })
         }
