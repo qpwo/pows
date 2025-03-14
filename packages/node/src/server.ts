@@ -433,13 +433,14 @@ class WebSocketServer<Routes extends {
 
   public start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.app.listen(this.config.port, (listenSocket) => {
-        console.log({listenSocket})
+      const host = this.config.host || 'localhost';
+      const port = this.config.port || 8080;
+      this.app.listen(host, port, (listenSocket) => {
         if (listenSocket) {
-          console.log(`Server listening on ${this.config.host}:${this.config.port}`);
+          console.log(`Server listening on ${host}:${port}`);
           resolve();
         } else {
-          reject(new Error(`Failed to listen on ${this.config.host}:${this.config.port}`));
+          reject(new Error(`Failed to listen on ${host}:${port}`));
         }
       });
     });
