@@ -20,16 +20,16 @@ async function main() {
   await api.connect()
   console.log('connected!')
 
-  const myMsg = 'You should have got an error'
+  const myMsg = 'I expect to get this back'
   try {
-    await api.server.procs.errorTest({})
-    throw new Error(myMsg)
-  } catch (err_) {
-    const err = err_ as Error
-    if (err.message !== myMsg) {
-      console.log('Got error yay', err.message)
+    await api.server.procs.errorTest({msg: myMsg})
+  } catch (e) {
+    const err = e as Error
+    if (err.message === myMsg) {
+      console.log('Error test passed:', err.message)
     } else {
-      console.error('Error not thrown as expected:', err.message)
+      console.error('Error test failed:', err)
+      process.exit(1)
     }
   }
 

@@ -6,7 +6,7 @@ export interface Routes {
     procs: {
       square(_: { x: number }): Promise<{ result: number }>
       whoami(_: Empty): Promise<{ name: string; userId: number }>
-      errorTest(_: Empty): Promise<void>
+      errorTest(_: {msg: string}): Promise<void>
     }
     streamers: {
       doBigJob(_: Empty): AsyncGenerator<string, void, unknown>
@@ -36,8 +36,8 @@ var api = makeTswsServer<Routes, ServerContext>({
         userId: ctx.userId ?? throwErr('No userId'),
       }
     },
-    async errorTest() {
-      throwErr('Test error')
+    async errorTest({msg}) {
+      throwErr(msg)
     },
   },
   streamers: {
