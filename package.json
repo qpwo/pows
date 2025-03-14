@@ -12,7 +12,7 @@
   "dependencies": {
     "@types/node": "20",
     "@types/ws": "^8.18.0",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.15.0",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.51.0",
     "ws": "^8.13.0"
   },
   "devDependencies": {

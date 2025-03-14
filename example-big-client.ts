@@ -1,15 +1,17 @@
-
 // example-big-client.ts
 import { connectTo } from './tsws-node-client'
 import type { Routes } from './example-big-server'
 
-const api = connectTo<Routes, {}>({
-  approve: async (question) => {
-    return confirm(question)
+const api = connectTo<Routes, {}>(
+  {
+    approve: async question => {
+      return confirm(question)
+    },
   },
-}, {
-  url: 'ws://localhost:8080',
-})
+  {
+    url: 'ws://localhost:8080',
+  },
+)
 
 async function main() {
   await sleep()
@@ -22,7 +24,7 @@ async function main() {
 }
 
 async function sleep({ ms = 1000 } = {}) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 main()
