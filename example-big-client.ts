@@ -14,6 +14,10 @@ const api = connectTo<Routes, {}>(
 )
 
 async function main() {
+  setTimeout(() => {
+    console.error('timed out after 10 seconds')
+    process.exit(1)
+  }, 10000)
   await sleep()
   console.log('Square(5):', await api.server.procs.square(5))
   console.log('Who am I?:', await api.server.procs.whoami())

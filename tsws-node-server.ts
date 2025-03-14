@@ -1,10 +1,16 @@
 // tsws-node-server.ts
 
-import uWS, { WebSocket, TemplatedApp } from 'uWebSockets.js'
+import uWS, { TemplatedApp, WebSocketBehavior } from 'uWebSockets.js'
+
+/**
+ * We define a helper type for the generic WebSocket in uWebSockets.js.
+ * By default, uWebSockets expects a type parameter for user data. We'll use `unknown` here.
+ */
+type WS = uWS.WebSocket<unknown>
 
 /**
  * The shape of the TSWS definition:
- * - server and client each declare "procs" (regular async functions) and "streamers" (async generators).
+ * - server and client each declare "procs" (async functions) and "streamers" (async generators).
  */
 export interface TSWSDefinition {
   server: {
@@ -25,13 +31,13 @@ export type Middleware<Context> = (ctx: ServerContext<Context>, next: () => Prom
 
 /**
  * Server context includes everything needed while handling a request.
- * You can store your raw socket, user info, etc. in here.
+ * - `extra` is a user-defined sub-object. Put your custom fields (e.g. `userName`, `userId`) in there.
  */
 export interface ServerContext<Context> {
-  rawSocket: WebSocket // uWebSockets WebSocket
-  connectionId: number // Unique ID for the connection
-  server: TSWSInternalServer // Reference to the internal server object (for calling client procs)
-  extra: Context // Additional user-defined context
+  rawSocket: WS
+  connectionId: number
+  server: TSWSInternalServer
+  extra: Context
 }
 
 /**
@@ -54,6 +60,7 @@ export interface StartServerOptions<Routes extends TSWSDefinition, Context> {
 
 /**
  * The server implementation. We'll store the methods for "server.procs" and "server.streamers".
+ * But the shape is keyed by your TSWSDefinition's server sub-fields.
  */
 export type ServerImplementation<Routes extends TSWSDefinition, Context> = {
   [K in keyof Routes['server']['procs']]: (
@@ -69,7 +76,7 @@ export type ServerImplementation<Routes extends TSWSDefinition, Context> = {
 
 /**
  * For replying to streaming requests, we store each generator in a map
- * so that we can send the `next()` results over time.
+ * so we can send the `next()` results over time.
  */
 interface ActiveStream {
   generator: AsyncGenerator<any, void, unknown>
@@ -80,23 +87,23 @@ interface ActiveStream {
  * A minimal shape for TSWS messages.
  */
 interface TSWSMessage {
-  reqId?: number // used to track request-response
+  reqId?: number
   type: 'proc' | 'stream' | 'next' | 'complete' | 'error' | 'result' | 'cancel'
   route: 'server' | 'client'
   name: string
   args?: any[]
-  value?: any // For results or stream `next` values
-  error?: string // For error messages
+  value?: any
+  error?: string
 }
 
 /**
  * Internal server object. We'll keep track of connections, streaming, etc.
  */
-interface TSWSInternalServer {
+export interface TSWSInternalServer {
   connections: Map<
     number,
     {
-      ws: WebSocket
+      ws: WS
       activeStreams: Map<number, ActiveStream>
       nextClientReqId: number
       inflightClientRequests: Map<number, (value: any) => void>
@@ -107,26 +114,7 @@ interface TSWSInternalServer {
 }
 
 /**
- * The object returned by startServer. It allows the server code
- * to call `api.client.procs.whatever()` from the server side
- * (for a particular connection).
- */
-export interface TSWSConnectionAPI<Routes extends TSWSDefinition> {
-  /**
-   * `client.procs` is for calling the connected client's RPC methods
-   */
-  client: {
-    procs: Routes['client']['procs']
-    streamers: Routes['client']['streamers']
-  }
-}
-
-/**
- * The main function to start the server.
- *
- * @param serverImpl the implementation of the server's procs and streamers
- * @param options options including port, middleware, etc.
- * @returns a utility for shutting down or referencing the server
+ * Start the TSWS server. Returns a minimal object containing the `app`.
  */
 export function startServer<Routes extends TSWSDefinition, Context = {}>(
   serverImpl: Partial<ServerImplementation<Routes, Context>>,
@@ -134,31 +122,15 @@ export function startServer<Routes extends TSWSDefinition, Context = {}>(
 ) {
   const port = options.port ?? 8080
 
-  // Wrap the user server implementation so that even if a method isn't provided,
-  // we have a default "not implemented" fallback.
-  const serverProcs: Required<ServerImplementation<Routes, Context>>['server'] = {} as any
-  const serverStreamers: Required<ServerImplementation<Routes, Context>>['server'] = {} as any
-
-  // Fill in the `serverImpl` with no-ops for missing keys (so we don't crash).
-  // But we can simply store them as they come in, if needed.
-
-  // For type-safety, we do a small fallback approach:
-  const sProcs: Record<string, any> = serverImpl as any
-  const sStreamers: Record<string, any> = serverImpl as any
-
-  // We'll store them as separate objects, or just use `serverImpl` directly with checks
-  // For simplicity, let's assume the user has provided only what's needed:
-  // (If a method doesn't exist, we return an error at runtime.)
-
   const internalServer: TSWSInternalServer = {
     connections: new Map(),
     nextConnectionId: 1,
   }
 
-  // Setup uWebSockets server
   const app = uWS.App({})
 
-  app.ws('/*', {
+  // WebSocket behavior
+  const wsBehavior: WebSocketBehavior = {
     open: ws => {
       const connectionId = internalServer.nextConnectionId++
       internalServer.connections.set(connectionId, {
@@ -168,18 +140,16 @@ export function startServer<Routes extends TSWSDefinition, Context = {}>(
         inflightClientRequests: new Map(),
         inflightClientRequestsReject: new Map(),
       })
-      // Attach the connectionId to the ws
-      // In normal uWebSockets usage, you'd store it in `ws.userData`,
-      // but let's store it so we can retrieve it in "message" and "close" events.
       ;(ws as any).connectionId = connectionId
     },
 
     message: async (ws, message, isBinary) => {
-      // Convert message from ArrayBuffer to string (assuming JSON).
+      // Convert message from ArrayBuffer/Buffer to string
       let msgString: string
       if (message instanceof ArrayBuffer) {
         msgString = Buffer.from(message).toString('utf-8')
       } else {
+        // In uWebSockets, 'message' is an ArrayBuffer by default, but let's handle generically
         msgString = Buffer.from(message).toString('utf-8')
       }
 
@@ -197,66 +167,58 @@ export function startServer<Routes extends TSWSDefinition, Context = {}>(
         return
       }
 
-      // Distinguish request vs. response
       switch (data.type) {
         case 'proc':
         case 'stream': {
           // The client is calling a server method or streamer
-          // 1. Construct context
           const ctx: ServerContext<Context> = {
             rawSocket: ws,
             connectionId,
             server: internalServer,
-            extra: {} as Context, // Will fill in with middleware
+            extra: {} as Context,
           }
 
-          // 2. Run the middleware chain
+          // Run middleware chain
           let index = 0
           const middlewares = options.middleware || []
-
-          // final function to call the actual route
           const routeCall = async () => {
             const { route, name, args } = data
             if (route !== 'server') {
-              // ignoring calls to "client" here, the user might have messed up
+              // Possibly an invalid route
               return
             }
 
-            // Identify if it's procs or streamers
             if (data.type === 'proc') {
-              // It's a normal procedure
-              if (typeof sProcs[name] !== 'function') {
-                // No such server method
+              // A normal procedure
+              const method = (serverImpl as any)[name]
+              if (typeof method !== 'function') {
                 return sendError(ws, data.reqId, `Server procedure '${name}' not found`)
               }
               try {
-                // Call the server method
-                const result = await sProcs[name](args, ctx)
+                const result = await method(args, ctx)
                 sendResult(ws, data.reqId, result)
               } catch (err: any) {
                 sendError(ws, data.reqId, err?.message ?? String(err))
               }
-            } else if (data.type === 'stream') {
-              // It's a streamer
-              if (typeof sStreamers[name] !== 'function') {
+            } else {
+              // A streamer
+              const method = (serverImpl as any)[name]
+              if (typeof method !== 'function') {
                 return sendError(ws, data.reqId, `Server streamer '${name}' not found`)
               }
               try {
-                const generator = sStreamers[name](args, ctx)
-                // Store the generator in activeStreams
+                const generator = method(args, ctx)
                 connState.activeStreams.set(data.reqId!, {
                   generator,
                   context: ctx,
                 })
-                // Start reading the first chunk
-                pumpStream(ws, connectionId, data.reqId!, generator)
+                pumpStream(ws, connectionId, data.reqId!, generator, internalServer)
               } catch (err: any) {
                 sendError(ws, data.reqId, err?.message ?? String(err))
               }
             }
           }
 
-          // run next middleware
           const runNext = async () => {
             const fn = middlewares[index++]
             if (fn) {
@@ -271,7 +233,6 @@ export function startServer<Routes extends TSWSDefinition, Context = {}>(
           } catch (err) {
             sendError(ws, data.reqId, (err as any)?.message ?? String(err))
           }
-
           break
         }
 
@@ -280,9 +241,7 @@ export function startServer<Routes extends TSWSDefinition, Context = {}>(
         case 'error':
         case 'cancel':
         case 'result': {
-          // The client is replying to a *server-initiated* call or stream.
-          // We'll see if we have a promise or generator waiting
-          // for this response in "inflightClientRequests" or something similar.
+          // The client is replying to a server->client call or stream
           handleClientResponse(internalServer, connectionId, data)
           break
         }
@@ -297,26 +256,22 @@ export function startServer<Routes extends TSWSDefinition, Context = {}>(
       const connectionId = (ws as any).connectionId
       internalServer.connections.delete(connectionId)
     },
-  })
+  }
+
+  app.ws('/*', wsBehavior)
 
   app.listen(port, token => {
     if (token) {
       console.log(`TSWS server listening on port ${port}`)
-      options.onStarted?.(app)
+      if (options.onStarted) {
+        options.onStarted(app)
+      }
     } else {
       console.error(`Failed to listen on port ${port}`)
     }
   })
 
-  /**
-   * We'll create a small utility object that we could return if we want.
-   * For advanced usage, you might want to shut down or broadcast, etc.
-   */
   return {
-    /**
-     * Not strictly needed for minimal usage, but might be useful if you want
-     * to call external APIs or maintain the server lifecycle.
-     */
     app,
   }
 }
@@ -324,7 +279,7 @@ export function startServer<Routes extends TSWSDefinition, Context = {}>(
 /**
  * Send a "result" message (RPC success).
  */
-function sendResult(ws: WebSocket, reqId: number | undefined, value: any) {
+function sendResult(ws: WS, reqId: number | undefined, value: any) {
   if (!reqId) return
   ws.send(
     JSON.stringify({
@@ -338,7 +293,7 @@ function sendResult(ws: WebSocket, reqId: number | undefined, value: any) {
 /**
  * Send an "error" message (RPC error).
  */
-function sendError(ws: WebSocket, reqId: number | undefined, error: string) {
+function sendError(ws: WS, reqId: number | undefined, error: string) {
   if (!reqId) return
   ws.send(
     JSON.stringify({
@@ -352,7 +307,7 @@ function sendError(ws: WebSocket, reqId: number | undefined, error: string) {
 /**
  * Send a "next" message for streaming.
  */
-function sendNext(ws: WebSocket, reqId: number, value: any) {
+function sendNext(ws: WS, reqId: number, value: any) {
   ws.send(
     JSON.stringify({
       reqId,
@@ -365,7 +320,7 @@ function sendNext(ws: WebSocket, reqId: number, value: any) {
 /**
  * Send a "complete" message for streaming.
  */
-function sendComplete(ws: WebSocket, reqId: number) {
+function sendComplete(ws: WS, reqId: number) {
   ws.send(
     JSON.stringify({
       reqId,
@@ -377,12 +332,17 @@ function sendComplete(ws: WebSocket, reqId: number) {
 /**
  * Pull from the generator and send the values to the client.
  */
-async function pumpStream(ws: WebSocket, connectionId: number, reqId: number, generator: AsyncGenerator<any, void, unknown>) {
+async function pumpStream(
+  ws: WS,
+  connectionId: number,
+  reqId: number,
+  generator: AsyncGenerator<any, void, unknown>,
+  internalServer: TSWSInternalServer,
+) {
   try {
     while (true) {
       const { value, done } = await generator.next()
       if (done) {
-        // stream is completed
         sendComplete(ws, reqId)
         break
       }
@@ -400,14 +360,12 @@ function handleClientResponse(internalServer: TSWSInternalServer, connectionId: 
   const conn = internalServer.connections.get(connectionId)
   if (!conn) return
 
-  // if this is a response to a server->client request
   const { reqId, type, value, error } = msg
-
   if (!reqId) return
 
-  // Check inflight requests
   const resolver = conn.inflightClientRequests.get(reqId)
   const rejecter = conn.inflightClientRequestsReject.get(reqId)
+
   if (resolver || rejecter) {
     switch (type) {
       case 'result':
@@ -420,16 +378,39 @@ function handleClientResponse(internalServer: TSWSInternalServer, connectionId: 
         conn.inflightClientRequestsReject.delete(reqId)
         rejecter?.(new Error(error || 'Unknown error'))
         break
-      case 'next':
-      case 'complete':
-      case 'cancel':
-        // For streaming responses from the client, you'd handle it similarly
-        // if you want the server to do streaming. Typically, you'd store a generator
-        // or an AsyncIterator for "client->server" streams.
-        // This example focuses on server->client calls.
-        break
+      // For streaming from client to server, we'd handle 'next', 'complete', etc. similarly.
       default:
         break
     }
   }
+}
+
+/**
+ * Helper for calling the client's procs from the server side.
+ * Usage example:
+ *   const result = await callClientProc<Routes, MyContext, 'approve'>(ctx, 'approve', ['question?'])
+ */
+export function callClientProc<Routes extends TSWSDefinition, Context, K extends keyof Routes['client']['procs']>(
+  ctx: ServerContext<Context>,
+  methodName: K,
+  args: Parameters<Routes['client']['procs'][K]>,
+): Promise<Awaited<ReturnType<Routes['client']['procs'][K]>>> {
+  const conn = ctx.server.connections.get(ctx.connectionId)
+  if (!conn) throw new Error('Connection not found in server context')
+
+  const reqId = conn.nextClientReqId++
+  return new Promise((resolve, reject) => {
+    conn.inflightClientRequests.set(reqId, resolve)
+    conn.inflightClientRequestsReject.set(reqId, reject)
+
+    conn.ws.send(
+      JSON.stringify({
+        reqId,
+        type: 'proc',
+        route: 'client',
+        name: methodName,
+        args,
+      }),
+    )
+  })
 }
