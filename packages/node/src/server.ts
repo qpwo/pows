@@ -435,7 +435,8 @@ class WebSocketServer<Routes extends {
     return new Promise((resolve, reject) => {
       const host = this.config.host || 'localhost';
       const port = this.config.port || 8080;
-      this.app.listen(host, port, (listenSocket) => {
+      // @ts-expect-error
+      this.app.listen( port, (listenSocket) => {
         if (listenSocket) {
           console.log(`Server listening on ${host}:${port}`);
           resolve();

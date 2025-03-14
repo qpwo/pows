@@ -7,7 +7,7 @@ const confirmPrompt = (question: string): boolean => {
   if (typeof window !== 'undefined' && window.confirm) {
     return window.confirm(question);
   }
-  
+
   // Simple fallback for Node.js (used in example)
   console.log(`${question} (Y/n)`);
   // Always return true in Node.js for simplicity in this example
@@ -23,12 +23,30 @@ const api = connectTo<Routes>({
 });
 
 async function run() {
+  await new Promise<void>(resolve => {
+    const checkConnection = () => {
+      if ((api as any)._internal.isConnected()) {
+        resolve();
+      } else {
+        setTimeout(checkConnection, 100);
+      }
+    };
+    checkConnection();
+  });
   console.log('Square(5):', await api.server.procs.square(5));
   console.log('Who am I?:', await api.server.procs.whoami());
 
   for await (const update of api.server.streamers.doBigJob()) {
     console.log('Job status:', update);
   }
+  console.log('see ya');
+  process.exit(0);
+
 }
 
-run().catch(console.error);
+setTimeout(() => { // do not modify!
+  console.error('client.ts timeout adios');
+  process.exit(1);
+}, 5000);
+
+void run()

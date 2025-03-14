@@ -19,6 +19,8 @@ async function main() {
   // Now call the procedure
   const upper = await api.server.procs.uppercase('foo');
   console.log(upper);  // Should output: FOO
+  console.log('see ya');
+  process.exit(0);
 }
 
 setTimeout(() => { // do not modify!
@@ -26,4 +28,4 @@ setTimeout(() => { // do not modify!
   process.exit(1);
 }, 5000);
 
-main().catch(console.error);
+void main()

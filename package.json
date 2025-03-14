@@ -14,7 +14,8 @@
     "example:basic:client": "esr examples/basic/client.ts",
     "example:advanced:server": "esr examples/advanced/server.ts",
     "example:advanced:client": "esr examples/advanced/client.ts",
-    "test:examples": "bash test-example-client-server.sh"
+    "test:examples": "bash test-example-client-server.sh",
+    "test:comprehensive": "timeout 10 pnpm exec jest packages/core/__tests__/comprehensive.test.ts"
   },
   "workspaces": [
     "packages/*"
