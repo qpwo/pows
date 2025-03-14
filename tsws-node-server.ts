@@ -4,65 +4,44 @@ import { App, WebSocket, us_listen_socket, us_listen_socket_close } from 'uWebSo
 
 type TswsMiddleware<Ctx> = (ctx: {
   rawSocket: WebSocket
-  /** The upgrade request is available via (rawSocket as any).upgradeReq, if needed. */
 }, next: () => Promise<void>) => Promise<void> | void
 
 /**
- * We define the shape of how we store server-side procs & streamers:
- *   - procs: simpler calls returning a single result
- *   - streamers: calls returning an AsyncGenerator
- */
-interface TswsServerSide<Routes, Ctx> {
-  procs: {
-    [K in keyof Routes]: (
-      args: unknown[],
-      ctx: Ctx
-    ) => Promise<unknown> | unknown
-  }
-  streamers: {
-    [K in keyof Routes]: (
-      args: unknown[],
-      ctx: Ctx
-    ) => AsyncGenerator<unknown, void, unknown> | Generator<unknown, void, unknown>
-  }
-}
-
-/**
- * We'll define a generic message shape for our WS protocol.
+ * We define the shape of our protocol messages
  */
 type TswsMessage =
   | {
-      type: 'rpc'; // request for a single-value result
+      type: 'rpc';
       route: 'server' | 'client';
       id: string;
       procName: string;
       args: unknown[];
     }
   | {
-      type: 'rpc_result'; // single-value result
+      type: 'rpc_result';
       id: string;
       success?: unknown;
       error?: string;
     }
   | {
-      type: 'stream_start'; // request to start streaming
+      type: 'stream_start';
       route: 'server' | 'client';
       id: string;
       procName: string;
       args: unknown[];
     }
   | {
-      type: 'stream_next'; // next value from a stream
+      type: 'stream_next';
       id: string;
       value: unknown;
     }
   | {
-      type: 'stream_error'; // error in a stream
+      type: 'stream_error';
       id: string;
       error: string;
     }
   | {
-      type: 'stream_complete'; // stream completed
+      type: 'stream_complete';
       id: string;
     };
 
@@ -71,11 +50,7 @@ function newId(): string {
 }
 
 /**
- * Makes a typed server that listens on a given port (or config).
- *
- * @param serverImpl - an object with your server procs/streamers
- * @param config - e.g. { port: number; middleware?: TswsMiddleware<Ctx>[] }
- * @returns an object with `start()`, `stop()`, and a `client` object
+ * The server factory
  */
 export function makeTswsServer<
   Routes extends {
@@ -102,23 +77,18 @@ export function makeTswsServer<
   const port = config?.port ?? 8080
   const middleware = config?.middleware ?? []
 
-  // We separate procs vs streamers
-  const serverProcs: TswsServerSide<Routes['server']['procs'], Ctx>['procs'] = {}
-  const serverStreamers: TswsServerSide<Routes['server']['streamers'], Ctx>['streamers'] =
-    {}
+  // Separate "procs" vs "streamers" from user input
+  const serverProcs: Record<string, (...args: any[]) => any> = {}
+  const serverStreamers: Record<string, (...args: any[]) => AsyncGenerator<any>> = {}
 
-  // Identify which user-provided functions are async generator vs normal
   for (const [key, fn] of Object.entries(serverImpl)) {
     if (typeof fn === 'function') {
-      // naive check for AsyncGenerator by looking at `fn.constructor.name`
       const isGenerator =
         fn.constructor.name === 'AsyncGeneratorFunction' ||
         fn.constructor.name === 'GeneratorFunction'
       if (isGenerator) {
-        // streamer
         serverStreamers[key] = fn as any
       } else {
-        // proc
         serverProcs[key] = fn as any
       }
     }
@@ -126,10 +96,10 @@ export function makeTswsServer<
 
   let listenSocket: us_listen_socket | null = null
 
-  // We track the "most recent" connection for the server to call "client.*" on
+  // Track the "most recent" client for server->client calls
   let currentClientSocket: WebSocket | null = null
 
-  // For in-flight calls from server to client:
+  // For in-flight calls from server->client
   const serverPendingRequests = new Map<
     string,
     {
@@ -137,27 +107,26 @@ export function makeTswsServer<
       reject: (err: any) => void
     }
   >()
-  // For in-flight streams from server to client:
+
+  // For in-flight server->client streams
   interface OutboundStream {
     generator: AsyncGenerator<unknown, void, unknown> | Generator<unknown, void, unknown>
     cancel?: () => void
   }
   const serverOutboundStreams = new Map<string, OutboundStream>()
 
-  // For inbound calls from the client:
-  //   We track in-progress streams that the client is pulling from the server
+  // For client->server streams in progress
   const serverInboundStreams = new Map<
     string,
     AsyncGenerator<unknown, void, unknown> | Generator<unknown, void, unknown>
   >()
 
-  // Create our client object so that the server can call `client.procs.*` or `client.streamers.*`
+  // The object that server uses to call "client" methods
   const client = {
     procs: new Proxy(
       {},
       {
         get(_target, prop: string) {
-          // Return a function that calls the remote client method
           return async (...args: unknown[]) => {
             if (!currentClientSocket) {
               throw new Error('No client is currently connected.')
@@ -182,15 +151,13 @@ export function makeTswsServer<
       {},
       {
         get(_target, prop: string) {
-          // Return a function that starts a remote streaming call
           return (...args: unknown[]) => {
             if (!currentClientSocket) {
               throw new Error('No client is currently connected.')
             }
             const id = newId()
-            // Create an async generator that yields as we get data
+            // Return an async generator that yields as we get data
             const asyncGen = (async function* () {
-              // Send start request
               const msg: TswsMessage = {
                 type: 'stream_start',
                 route: 'client',
@@ -205,31 +172,13 @@ export function makeTswsServer<
               let onData: (() => void) | null = null
               let error: any = null
 
-              // We store a listener so that incoming messages for this stream
-              // are pushed in the queue
-              const listener = {
-                next: (val: unknown) => {
-                  queue.push({ value: val })
-                  onData?.()
-                },
-                error: (err: any) => {
-                  error = err
-                  done = true
-                  onData?.()
-                },
-                complete: () => {
-                  done = true
-                  onData?.()
-                },
-              }
-
               serverOutboundStreams.set(id, {
-                generator: null as any, // not used for outbound
+                generator: null as any,
                 cancel: () => {
                   done = true
                   onData?.()
                 },
-              } as OutboundStream)
+              })
 
               try {
                 while (!done) {
@@ -242,10 +191,11 @@ export function makeTswsServer<
                   if (error) {
                     throw error
                   }
-                  if (queue.length) {
+                  while (queue.length) {
                     const chunk = queue.shift()!
                     yield chunk.value
-                  } else if (done) {
+                  }
+                  if (done) {
                     break
                   }
                 }
@@ -260,129 +210,152 @@ export function makeTswsServer<
     ) as Routes['client']['streamers'],
   }
 
-  // The core dispatch to call server procs or streamers
+  // Helper to handle inbound RPC calls for server "procs"
   async function handleServerProc(
     ws: WebSocket,
     msg: Extract<TswsMessage, { type: 'rpc' }>,
     ctx: Ctx
   ) {
     const { procName, args, id } = msg
-    const fn = serverProcs[procName as keyof typeof serverProcs]
+    const fn = serverProcs[procName]
     if (!fn) {
-      // No such proc
-      const resp: TswsMessage = {
+      ws.send(JSON.stringify({
         type: 'rpc_result',
         id,
         error: `Server procedure not found: ${procName}`,
-      }
-      ws.send(JSON.stringify(resp))
+      }))
       return
     }
     try {
       const result = await fn(args, ctx)
-      const resp: TswsMessage = {
+      ws.send(JSON.stringify({
         type: 'rpc_result',
         id,
         success: result,
-      }
-      ws.send(JSON.stringify(resp))
+      }))
     } catch (err: any) {
-      const resp: TswsMessage = {
+      ws.send(JSON.stringify({
         type: 'rpc_result',
         id,
         error: String(err?.message || err),
-      }
-      ws.send(JSON.stringify(resp))
+      }))
     }
   }
 
+  // Helper to handle inbound stream starts for server "streamers"
   async function handleServerStreamStart(
     ws: WebSocket,
     msg: Extract<TswsMessage, { type: 'stream_start' }>,
     ctx: Ctx
   ) {
     const { procName, args, id } = msg
-    const fn = serverStreamers[procName as keyof typeof serverStreamers]
+    const fn = serverStreamers[procName]
     if (!fn) {
-      // No such stream
-      const resp: TswsMessage = {
+      ws.send(JSON.stringify({
         type: 'stream_error',
         id,
         error: `Server streamer not found: ${procName}`,
-      }
-      ws.send(JSON.stringify(resp))
+      }))
       return
     }
     try {
       const gen = fn(args, ctx)
       serverInboundStreams.set(id, gen)
-      // Start reading from the generator and push results
       ;(async () => {
         try {
           for await (const val of gen) {
-            const resp: TswsMessage = {
+            ws.send(JSON.stringify({
               type: 'stream_next',
               id,
               value: val,
-            }
-            ws.send(JSON.stringify(resp))
+            }))
           }
-          const done: TswsMessage = {
+          ws.send(JSON.stringify({
             type: 'stream_complete',
             id,
-          }
-          ws.send(JSON.stringify(done))
+          }))
           serverInboundStreams.delete(id)
         } catch (err: any) {
-          const e: TswsMessage = {
+          ws.send(JSON.stringify({
             type: 'stream_error',
             id,
             error: String(err?.message || err),
-          }
-          ws.send(JSON.stringify(e))
+          }))
           serverInboundStreams.delete(id)
         }
       })()
     } catch (err: any) {
-      const e: TswsMessage = {
+      ws.send(JSON.stringify({
         type: 'stream_error',
         id,
         error: String(err?.message || err),
-      }
-      ws.send(JSON.stringify(e))
+      }))
     }
   }
 
-  // Spin up the server
   async function start() {
     return new Promise<void>((resolve, reject) => {
       const app = App()
 
       app.ws('/*', {
-        // Called when a new websocket is established
-        open: async (ws) => {
-          currentClientSocket = ws
-          const ctxObj = { rawSocket: ws } as { [k: string]: any }
-          // The upgrade request can be read from ws as any:
-          // (ws as any).upgradeReq: { headers, etc. }
+        /**
+         * 1) The "upgrade" callback is where we can read HTTP headers.
+         *    Then we attach them to user data so they become accessible in "open".
+         */
+        upgrade: (res, req, context) => {
+          // Grab the headers you need
+          const cookie = req.getHeader('cookie') // raw cookie string, if any
 
-          // Run middleware chain:
+          // Create a small "upgradeReq" object that mimics what you want:
+          const upgradeReq = {
+            headers: {
+              cookie,
+              // e.g. host: req.getHeader('host'),
+              // etc.
+            },
+          }
+
+          res.upgrade(
+            // The "userData" object:
+            { upgradeReq },
+            // Standard WebSocket upgrade fields:
+            req.getHeader('sec-websocket-key'),
+            req.getHeader('sec-websocket-protocol'),
+            req.getHeader('sec-websocket-extensions'),
+            context
+          )
+        },
+
+        /**
+         * 2) "open" is called after a successful upgrade. The "ws" argument
+         *    is actually our userData object from above.
+         */
+        open: async (ws) => {
+          // 'ws' is typed as WebSocket, but it also includes our userData keys
+          // e.g. (ws as any).upgradeReq
+          currentClientSocket = ws as WebSocket
+
+          // Build a context object
+          const ctxObj = { rawSocket: ws } as Ctx
+          // Attach the "upgradeReq" onto the rawSocket,
+          // so your middleware can do: ctx.uws.upgradeReq.headers.cookie
+          ;(ws as any).upgradeReq = (ws as any).upgradeReq || {}
+          ctxObj.rawSocket.upgradeReq = (ws as any).upgradeReq
+
+          // Run middleware chain
           let i = 0
           const next = async () => {
             const mw = middleware[i++]
             if (mw) {
-              await mw(ctxObj as Ctx, next)
+              await mw(ctxObj, next)
             }
           }
           await next()
-
-          // We attach the final context to ws
-          ;(ws as any)._tsws_ctx = ctxObj
+          // Done with open
         },
-        // Called on message
+
         message: (ws, message, isBinary) => {
           if (isBinary) {
-            // we don't handle binary here
             return
           }
           let data: TswsMessage
@@ -391,7 +364,9 @@ export function makeTswsServer<
           } catch (err) {
             return
           }
-          const ctx = ((ws as any)._tsws_ctx || {}) as Ctx
+          const ctx = { rawSocket: ws } as Ctx
+          // also attach upgradeReq to the context if needed
+          ;(ctx.rawSocket as any).upgradeReq = (ws as any).upgradeReq
 
           switch (data.type) {
             // -- inbound requests (client calling server) --
@@ -422,17 +397,14 @@ export function makeTswsServer<
             case 'stream_next': {
               const stream = serverOutboundStreams.get(data.id)
               if (stream) {
-                // If this were inbound from the client, we'd push to a queue, etc.
-                // But for simplicity, we won't implement "server receiving next from client"
-                // because typically only one side yields.
-                // This is a place-holder if you needed symmetrical streaming from client → server.
+                // Usually not used for serverOutbound -> clientInbound
+                // But symmetrical if you want client to push "next" data
               }
               break
             }
             case 'stream_error': {
               const stream = serverOutboundStreams.get(data.id)
               if (stream) {
-                // signal error somehow if needed
                 if (stream.cancel) stream.cancel()
               }
               break
@@ -446,7 +418,7 @@ export function makeTswsServer<
             }
           }
         },
-        // Called when websocket is closed
+
         close: (ws, code, message) => {
           if (currentClientSocket === ws) {
             currentClientSocket = null
