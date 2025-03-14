@@ -9,6 +9,7 @@ async function main() {
   await api.connect()
   const upper = await api.server.procs.uppercase('foo')
   console.log('Upper:', upper)
+  process.exit(0)
 }
 
 setTimeout(() => {
