@@ -1,11 +1,17 @@
-// tsws-node-client.ts
+/* tsws-node-client.ts */
 
 import WebSocket from 'ws'
 
+/**
+ * Internal helper: check if something is an async generator.
+ */
 function isAsyncGenerator(obj: any): obj is AsyncGenerator {
   return obj && typeof obj[Symbol.asyncIterator] === 'function'
 }
 
+/**
+ * Global request ID for client->server calls.
+ */
 let globalReqId = 0
 function newRequestId() {
   globalReqId++
@@ -13,24 +19,53 @@ function newRequestId() {
 }
 
 /**
- * Create a Node.js WebSocket client (using 'ws') with
- * typed server calls + typed client handlers (so the server can call back).
+ * Transform user-defined client methods from “nice shape” `(question: string) => boolean`
+ * into an internal `(args: unknown[], ctx) => boolean`, plus bind `this` = `ctx`.
+ *
+ * Also the same for streaming methods (async generators).
  */
-export function makeTswsClient<Routes, Context = Record<string, any>>(
-  /**
-   * The client’s own `client.procs` / `client.streamers` implementation,
-   * i.e. what the server can call.
-   */
-  clientHandlers: Partial<Routes['client']['procs'] & Routes['client']['streamers']>,
-  options: {
-    url: string
-  },
-) {
-  const wsUrl = options.url
-  let ws: WebSocket
+function wrapClientHandlers<ClientImpl extends Record<string, any>, Context>(
+  rawHandlers: ClientImpl,
+): Record<string, (args: unknown[], realCtx: Context) => any> {
+  const wrapped: Record<string, any> = {}
 
-  // Tracks requests from the client->server. Keyed by request ID.
-  const pendingClientCalls = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>()
+  for (const key of Object.keys(rawHandlers)) {
+    const userFn = rawHandlers[key]
+    if (typeof userFn === 'function') {
+      wrapped[key] = function handleRequest(argsArray: unknown[], realCtx: Context) {
+        return userFn.apply(realCtx, argsArray)
+      }
+    }
+  }
+
+  return wrapped
+}
+
+/**
+ * Create a Node.js WebSocket client with typed server calls + typed client handlers.
+ */
+export function makeTswsClient<
+  Routes extends {
+    server: { procs: Record<string, any>; streamers: Record<string, any> }
+    client: { procs: Record<string, any>; streamers: Record<string, any> }
+  },
+  Context = Record<string, any>
+>(
+  /**
+   * The client's “nice shape” handlers (what the server can call on the client).
+   */
+  rawClientHandlers: Partial<Routes['client']['procs'] & Routes['client']['streamers']>,
+
+  options: { url: string },
+) {
+  let ws: WebSocket
+  const wsUrl = options.url
+
+  // Wrap the user’s client handlers so we store them in internal form (args[], ctx).
+  const clientHandlers = wrapClientHandlers(rawClientHandlers || {}) as Record<string, any>
+
+  // Map from request ID => {resolve, reject} for client->server calls
+  const pendingClientCalls = new Map<string, { resolve: (v: any) => void; reject: (e: any) => void }>()
 
   // For streaming calls from client->server
   interface StreamState {
@@ -38,101 +73,90 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
     queue: any[]
     error: any
   }
-  // Map from stream ID to the state
   const clientStreams = new Map<string, StreamState>()
 
-  // For server->client calls, we need to handle them with `clientHandlers`.
-  // The server can do either normal calls or streaming calls on the client.
-
   /**
-   * The object that the user calls to invoke `server.procs`.
+   * Build a “server.procs” object so user code calls `api.server.procs.foo(123)`.
+   * Internally, we send {args:[123]} to the server.
    */
-  const serverProcs = new Proxy(
-    {},
-    {
+  function makeServerProcs(): Routes['server']['procs'] {
+    return new Proxy({} as Record<string, any>, {
       get(_, methodName: string) {
-        // Return a function that calls the server's method
         return (...args: any[]) => {
           const id = newRequestId()
           return new Promise((resolve, reject) => {
             pendingClientCalls.set(id, { resolve, reject })
-            const msg = {
-              type: 'proc',
-              side: 'server' as const,
-              name: methodName,
-              id,
-              args,
-            }
-            ws.send(JSON.stringify(msg))
+            ws.send(
+              JSON.stringify({
+                type: 'proc',
+                side: 'server' as const,
+                name: methodName,
+                id,
+                args,
+              }),
+            )
           })
         }
       },
-    },
-  ) as Routes['server']['procs']
+    }) as Routes['server']['procs']
+  }
 
   /**
-   * The object that the user calls to invoke `server.streamers`.
-   * Each method returns an AsyncGenerator that yields server "chunk" messages.
+   * Build a “server.streamers” so user calls `api.server.streamers.someStream(...)`.
    */
-  const serverStreamers = new Proxy(
-    {},
-    {
+  function makeServerStreamers(): Routes['server']['streamers'] {
+    return new Proxy({} as Record<string, any>, {
       get(_, methodName: string) {
-        // Return a function that starts a streaming call
         return (...args: any[]) => {
           const id = newRequestId()
-          // Create the state
-          const state: StreamState = {
-            done: false,
-            queue: [],
-            error: null,
-          }
-          clientStreams.set(id, state)
+          const st: StreamState = { done: false, queue: [], error: null }
+          clientStreams.set(id, st)
 
-          // Send the start message
+          // Send a "stream_start" message
           ws.send(
             JSON.stringify({
               type: 'stream_start',
-              side: 'server' as const,
+              side: 'server',
               name: methodName,
               id,
               args,
             }),
           )
 
-          // Return an AsyncGenerator
+          // Return an async generator
           return (async function* () {
             try {
               while (true) {
-                // If there's something in the queue, yield it
-                if (state.queue.length > 0) {
-                  yield state.queue.shift()
+                if (st.queue.length > 0) {
+                  yield st.queue.shift()
                   continue
                 }
-                // If there's an error, throw
-                if (state.error) {
-                  throw state.error
+                if (st.error) {
+                  throw st.error
                 }
-                // If done, break
-                if (state.done) {
+                if (st.done) {
                   break
                 }
-                // Otherwise, wait a bit
                 await new Promise(res => setTimeout(res, 50))
               }
             } finally {
-              // If generator is closed early, we can send a stop
-              if (!state.done) {
+              // If consumer stops early, tell server "stream_stop"
+              if (!st.done) {
                 ws.send(JSON.stringify({ type: 'stream_stop', id }))
               }
             }
           })()
         }
       },
-    },
-  ) as Routes['server']['streamers']
+    }) as Routes['server']['streamers']
+  }
 
-  // Now define how we handle inbound messages (server->client calls or responses).
+  const serverProcs = makeServerProcs()
+  const serverStreamers = makeServerStreamers()
+
+  /**
+   * Handle inbound messages from server -> client.
+   */
   function handleMessage(data: WebSocket.Data) {
     let str: string
     if (typeof data === 'string') {
@@ -140,17 +164,18 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
     } else {
       str = data.toString()
     }
+
     let msg: any
     try {
       msg = JSON.parse(str)
-    } catch (err) {
+    } catch {
       console.error('Client received invalid JSON:', str)
       return
     }
 
     const { type, side, id, name, args } = msg
 
-    // 1. If it's a response to a client->server call:
+    // 1) If it's a response to a client->server call:
     if (type === 'proc_result') {
       const pending = pendingClientCalls.get(id)
       if (!pending) return
@@ -180,19 +205,26 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
       return
     }
 
-    // 2. If it's a request from server->client (side === 'client'):
-    if (type === 'proc' && side === 'client') {
-      const fn = (clientHandlers as any)[name]
+    // 2) If it's a call from server->client:
+    if ((type === 'proc' || type === 'stream_start') && side === 'client') {
+      const fn = clientHandlers[name]
       if (typeof fn !== 'function') {
-        // Return error
-        ws.send(JSON.stringify({ type: 'proc_result', id, error: `No such client proc: ${name}` }))
+        if (type === 'proc') {
+          ws.send(JSON.stringify({ type: 'proc_result', id, error: `No such client proc: ${name}` }))
+        } else {
+          ws.send(JSON.stringify({ type: 'stream_end', id, error: `No such client streamer: ${name}` }))
+        }
         return
       }
-      let ctx: Context & { ws: WebSocket } = { ws } as any
+
+      // We'll call it with `(args, context)`, binding `this = context`.
+      // Make a minimal "ctx" that includes `ws` for your usage.
+      const ctx: Context & { ws: WebSocket } = { ws } as any
+
       try {
         const result = fn(args, ctx)
         if (isAsyncGenerator(result)) {
-          // It's a stream
+          // The client is streaming data back to the server
           ;(async () => {
             try {
               for await (const chunk of result) {
@@ -213,67 +245,37 @@ export function makeTswsClient<Routes, Context = Record<string, any>>(
             })
         }
       } catch (err) {
-        ws.send(JSON.stringify({ type: 'proc_result', id, error: String(err) }))
-      }
-      return
-    }
-
-    if (type === 'stream_start' && side === 'client') {
-      const fn = (clientHandlers as any)[name]
-      if (typeof fn !== 'function') {
-        ws.send(JSON.stringify({ type: 'stream_end', id, error: `No such client streamer: ${name}` }))
-        return
-      }
-      let ctx: Context & { ws: WebSocket } = { ws } as any
-      try {
-        const gen = fn(args, ctx)
-        if (!isAsyncGenerator(gen)) {
-          ws.send(JSON.stringify({ type: 'stream_end', id, error: `${name} is not an async generator` }))
-          return
+        if (type === 'proc') {
+          ws.send(JSON.stringify({ type: 'proc_result', id, error: String(err) }))
+        } else {
+          ws.send(JSON.stringify({ type: 'stream_end', id, error: String(err) }))
         }
-        ;(async () => {
-          try {
-            for await (const chunk of gen) {
-              ws.send(JSON.stringify({ type: 'stream_chunk', id, chunk }))
-            }
-            ws.send(JSON.stringify({ type: 'stream_end', id }))
-          } catch (err) {
-            ws.send(JSON.stringify({ type: 'stream_end', id, error: String(err) }))
-          }
-        })()
-      } catch (err) {
-        ws.send(JSON.stringify({ type: 'stream_end', id, error: String(err) }))
       }
       return
     }
 
     if (type === 'stream_stop') {
-      // The server wants to stop the stream. Not fully implemented here.
+      // The server wants to stop the stream. Not implemented.
       return
     }
   }
 
   return {
     /**
-     * Connect to the server. Resolves once the WebSocket is open.
+     * Connect to the server. Resolves once the WS is open.
      */
     connect() {
       return new Promise<void>((resolve, reject) => {
         ws = new WebSocket(wsUrl)
-        ws.on('open', () => {
-          resolve()
-        })
-        ws.on('error', err => {
-          reject(err)
-        })
+        ws.on('open', () => resolve())
+        ws.on('error', err => reject(err))
         ws.on('message', handleMessage)
       })
     },
 
     /**
-     * Access the server’s methods:
-     *   - `api.server.procs.someMethod(...)`
-     *   - `api.server.streamers.someStreamer(...)`
+     * Expose server calls so user can do `api.server.procs.someMethod(...)`
+     * or `api.server.streamers.someStreamer(...)`.
      */
     server: {
       procs: serverProcs,

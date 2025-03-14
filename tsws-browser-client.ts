@@ -1,28 +1,28 @@
 // tsws-browser-client.ts
 
-function isAsyncGenerator(obj: any): obj is AsyncGenerator {
-  return obj && typeof obj[Symbol.asyncIterator] === 'function'
-}
-
-let globalReqId = 0
-function newRequestId() {
-  globalReqId++
-  return 'cli_' + globalReqId
-}
-
-/**
- * Create a Browser WebSocket client (using the native `WebSocket`).
- */
-export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
+// Constrain Routes so we can index Routes['client'] / Routes['server'] safely:
+export function makeTswsBrowserClient<
+  Routes extends {
+    server: { procs: Record<string, any>; streamers: Record<string, any> }
+    client: { procs: Record<string, any>; streamers: Record<string, any> }
+  },
+  Context = Record<string, any>,
+>(
   clientHandlers: Partial<Routes['client']['procs'] & Routes['client']['streamers']>,
   options: {
     url: string
   },
 ) {
-  const wsUrl = options.url
   let ws: WebSocket
+  const wsUrl = options.url
 
-  // Pending calls from the browser -> server
+  let globalReqId = 0
+  function newRequestId() {
+    globalReqId++
+    return 'cli_' + globalReqId
+  }
+
+  // Track calls from browser->server:
   const pendingClientCalls = new Map<string, { resolve: (val: any) => void; reject: (err: any) => void }>()
 
   interface StreamState {
@@ -32,7 +32,7 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
   }
   const clientStreams = new Map<string, StreamState>()
 
-  // Proxies for calling `server.procs` and `server.streamers`
+  // Proxies to call server.procs
   const serverProcs = new Proxy(
     {},
     {
@@ -41,20 +41,22 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
           const id = newRequestId()
           return new Promise((resolve, reject) => {
             pendingClientCalls.set(id, { resolve, reject })
-            const msg = {
-              type: 'proc',
-              side: 'server' as const,
-              name: methodName,
-              id,
-              args,
-            }
-            ws.send(JSON.stringify(msg))
+            ws.send(
+              JSON.stringify({
+                type: 'proc',
+                side: 'server' as const,
+                name: methodName,
+                id,
+                args,
+              }),
+            )
           })
         }
       },
     },
   ) as Routes['server']['procs']
 
+  // Proxies to call server.streamers
   const serverStreamers = new Proxy(
     {},
     {
@@ -63,7 +65,6 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
           const id = newRequestId()
           const state: StreamState = { done: false, queue: [], error: null }
           clientStreams.set(id, state)
-          // Start
           ws.send(
             JSON.stringify({
               type: 'stream_start',
@@ -73,7 +74,6 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
               args,
             }),
           )
-          // Return an async generator
           return (async function* () {
             try {
               while (true) {
@@ -111,6 +111,7 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
 
     const { type, side, id, name, args } = msg
 
+    // Response to a client->server call:
     if (type === 'proc_result') {
       const pending = pendingClientCalls.get(id)
       if (!pending) return
@@ -150,7 +151,7 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
       let ctx: Context & { ws: WebSocket } = { ws } as any
       try {
         const result = fn(args, ctx)
-        if (isAsyncGenerator(result)) {
+        if (result && typeof result[Symbol.asyncIterator] === 'function') {
           ;(async () => {
             try {
               for await (const chunk of result) {
@@ -185,7 +186,7 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
       let ctx: Context & { ws: WebSocket } = { ws } as any
       try {
         const gen = fn(args, ctx)
-        if (!isAsyncGenerator(gen)) {
+        if (!gen || typeof gen[Symbol.asyncIterator] !== 'function') {
           ws.send(JSON.stringify({ type: 'stream_end', id, error: `${name} is not an async generator` }))
           return
         }
@@ -206,15 +207,12 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
     }
 
     if (type === 'stream_stop') {
-      // Not fully implemented. You could handle abort logic here.
+      // Not implemented.
       return
     }
   }
 
   return {
-    /**
-     * Connect to the server in the browser.
-     */
     async connect() {
       return new Promise<void>((resolve, reject) => {
         ws = new WebSocket(wsUrl)
@@ -224,9 +222,6 @@ export function makeTswsBrowserClient<Routes, Context = Record<string, any>>(
       })
     },
 
-    /**
-     * Expose server calls
-     */
     server: {
       procs: serverProcs,
       streamers: serverStreamers,

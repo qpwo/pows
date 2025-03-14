@@ -1,52 +1,118 @@
-// tsws-node-server.ts
+/* tsws-node-server.ts */
 
 import uWS from 'uWebSockets.js'
 
-// A small helper type to detect AsyncGenerators
+/**
+ * Internal helper: check if a given object is an async generator.
+ */
 function isAsyncGenerator(obj: any): obj is AsyncGenerator {
   return obj && typeof obj[Symbol.asyncIterator] === 'function'
 }
 
+/**
+ * Global server request ID generator, used for server->client calls.
+ */
 let globalReqId = 0
 function newRequestId() {
   globalReqId++
   return 'srv_' + globalReqId
 }
 
-interface TswsServerOptions<Context> {
-  port?: number
+/**
+ * Options for the server.
+ */
+export interface TswsServerOptions<Context> {
   /**
-   * Called whenever a new client connects. Useful for populating
-   * the Context object with user data, etc.
+   * Port to listen on (default 8080).
+   */
+  port?: number
+
+  /**
+   * Called whenever a new client connects. You can initialize
+   * the `ctx` here. We also provide `ctx.ws`, `ctx.procs`, and `ctx.streamers`
+   * for calling the client's side (like `ctx.procs.someMethod()`).
    */
   onConnection?: (
     ctx: Context & {
-      ws: uWS.WebSocket
-      procs: any
-      streamers: any
+      ws: uWS.WebSocket<unknown>
+      procs: Record<string, any>
+      streamers: Record<string, any>
     },
   ) => void | Promise<void>
 }
 
 /**
- * Create a TypeScript WebSocket Server using uWebSockets.js
+ * Transforms user-defined server methods from the “nice shape”
+ *   `(x: number) => Promise<number>`
+ * into an “internal shape”
+ *   `([x], ctx) => Promise<number>`, plus rebinds `this` to `ctx`.
  *
- * @param handlers An object implementing your `server.procs` and `server.streamers`.
- *   Each key is a function. If the function returns an AsyncGenerator,
- *   it is treated as a streamer. Otherwise, it is treated as a normal RPC.
- * @param options Server options, including port and onConnection callback.
+ * We do this so the user can define normal TypeScript method signatures,
+ * but internally, we handle passing arrays and context around.
  */
-export function makeTswsServer<Routes, Context = Record<string, any>>(
-  handlers: Partial<Routes['server']['procs'] & Routes['server']['streamers']>,
+function wrapServerHandlers<ServerImpl extends Record<string, any>, Context>(
+  rawHandlers: ServerImpl,
+): Record<string, (args: unknown[], realCtx: Context) => any> {
+  const wrapped: Record<string, any> = {}
+
+  for (const key of Object.keys(rawHandlers)) {
+    const userFn = rawHandlers[key]
+    if (typeof userFn === 'function') {
+      wrapped[key] = function handleRequest(argsArray: unknown[], realCtx: Context) {
+        // We'll apply the user function with those arguments, but also bind `this = realCtx`.
+        // Because TS does not like reassigning `this`, we do an @ts-expect-error:
+        // (We do the call twice so we can handle if it's an async generator.)
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        return userFn.apply(realCtx, argsArray)
+      }
+    }
+  }
+
+  return wrapped
+}
+
+/**
+ * Generic definition:
+ *   Routes: { server: { procs: ..., streamers: ... }, client: { procs: ..., streamers: ... } }
+ *   Context: Additional data you want on the server side (like user info).
+ */
+export function makeTswsServer<
+  Routes extends {
+    server: { procs: Record<string, any>; streamers: Record<string, any> }
+    client: { procs: Record<string, any>; streamers: Record<string, any> }
+  },
+  Context = Record<string, any>
+>(
+  /**
+   * User-defined server methods in their “nice shape.”
+   * We'll convert them internally to (args, ctx).
+   */
+  rawHandlers: Partial<Routes['server']['procs'] & Routes['server']['streamers']>,
+
   options?: TswsServerOptions<Context>,
 ) {
   const port = options?.port ?? 8080
 
-  // Store a map from ws to its context object
-  const contexts = new WeakMap<uWS.WebSocket, Context & { ws: uWS.WebSocket; procs: any; streamers: any }>()
+  // Wrap the user handlers so we store them in a shape where each function is (args, ctx).
+  const handlers = wrapServerHandlers(rawHandlers || {}) as Record<string, any>
 
-  // This map tracks requests *from the server to the client* so we can resolve them
-  // once we get responses. Keyed by request ID.
+  /**
+   * We keep a WeakMap from the `WebSocket` to the combined context object,
+   * which includes your custom `Context` plus `.ws`, `.procs`, `.streamers`.
+   */
+  const contexts = new WeakMap<
+    uWS.WebSocket<unknown>,
+    Context & {
+      ws: uWS.WebSocket<unknown>
+      procs: Routes['client']['procs']
+      streamers: Routes['client']['streamers']
+    }
+  >()
+
+  /**
+   * When the server calls the client (`ctx.procs.foo(...)`),
+   * we store the pending call in this map so we can resolve it upon reply.
+   */
   const pendingServerCalls = new Map<
     string,
     {
@@ -56,132 +122,107 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
   >()
 
   /**
-   * Build a "client procs" object that the server can use to call
-   * the client's `client.procs` methods. Each call returns a Promise.
+   * Build a "client procs" object so the server can call
+   * `ctx.procs.someClientMethod(...)`.
    */
-  function makeClientProcs(ws: uWS.WebSocket) {
-    return new Proxy(
-      {},
-      {
-        get(_, methodName: string) {
-          // Return a function that, when called, sends a request to the client
-          return (...args: any[]) => {
-            const reqId = newRequestId()
-            return new Promise((resolve, reject) => {
-              pendingServerCalls.set(reqId, { resolve, reject })
-              const msg = {
-                type: 'proc',
-                side: 'client' as const, // calling the client's side
-                name: methodName,
-                id: reqId,
-                args,
-              }
-              ws.send(JSON.stringify(msg))
-            })
-          }
-        },
-      },
-    )
-  }
-
-  /**
-   * Build a "client streamers" object if you need streaming calls from server to client
-   * (not used in the provided examples, but here for completeness).
-   */
-  function makeClientStreamers(ws: uWS.WebSocket) {
-    return new Proxy(
-      {},
-      {
-        get(_, methodName: string) {
-          // Return a function that starts a streaming call to the client
-          return (...args: any[]) => {
-            // Create an async generator that yields chunks from the client
-            const reqId = newRequestId()
-
-            // We'll store a queue of incoming chunks
-            let chunkQueue: any[] = []
-            let finished = false
-            let error: any = null
-
-            // Send the start message
-            const startMsg = {
-              type: 'stream_start',
+  function makeClientProcs(ws: uWS.WebSocket<unknown>): Routes['client']['procs'] {
+    // We cast to `any` inside the Proxy, then return the typed object at the end.
+    return new Proxy({} as Record<string, any>, {
+      get(_, methodName: string) {
+        return (...args: any[]) => {
+          const reqId = newRequestId()
+          return new Promise((resolve, reject) => {
+            pendingServerCalls.set(reqId, { resolve, reject })
+            const message = {
+              type: 'proc',
               side: 'client' as const,
               name: methodName,
               id: reqId,
               args,
             }
-            ws.send(JSON.stringify(startMsg))
-
-            // We also need a way to handle "stop" if the consumer closes early
-            function stopStream() {
-              if (!finished) {
-                finished = true
-                const stopMsg = {
-                  type: 'stream_stop',
-                  id: reqId,
-                }
-                ws.send(JSON.stringify(stopMsg))
-              }
-            }
-
-            // Return an async generator
-            return (async function* () {
-              try {
-                while (true) {
-                  // If there are queued chunks, shift them out
-                  if (chunkQueue.length > 0) {
-                    yield chunkQueue.shift()
-                    continue
-                  }
-                  if (error) {
-                    throw error
-                  }
-                  if (finished) {
-                    break
-                  }
-
-                  // Wait for the next event
-                  await new Promise(resolve => setTimeout(resolve, 50))
-                }
-              } finally {
-                stopStream()
-              }
-            })()
-          }
-        },
+            ws.send(JSON.stringify(message))
+          })
+        }
       },
-    )
+    }) as Routes['client']['procs']
   }
 
   /**
-   * Handle a message *from the client* to the server.
+   * Build a "client streamers" object so the server can start
+   * streaming calls to the client. Not fully implemented for chunk handling,
+   * but enough for demonstration.
    */
-  async function handleMessage(ws: uWS.WebSocket, rawData: ArrayBuffer | string) {
-    let str: string
-    if (typeof rawData === 'string') {
-      str = rawData
-    } else {
-      str = Buffer.from(rawData).toString('utf8')
-    }
+  function makeClientStreamers(ws: uWS.WebSocket<unknown>): Routes['client']['streamers'] {
+    return new Proxy({} as Record<string, any>, {
+      get(_, methodName: string) {
+        return (...args: any[]) => {
+          const reqId = newRequestId()
+
+          // Send "stream_start"
+          ws.send(
+            JSON.stringify({
+              type: 'stream_start',
+              side: 'client',
+              name: methodName,
+              id: reqId,
+              args,
+            }),
+          )
+
+          // Return a minimal async generator that would yield chunks from the client
+          let finished = false
+          let error: any = null
+          let queue: any[] = []
+
+          function stop() {
+            if (!finished) {
+              finished = true
+              ws.send(JSON.stringify({ type: 'stream_stop', id: reqId }))
+            }
+          }
+
+          // We won't show client->server chunk handling here for brevity.
+          return (async function* () {
+            try {
+              while (true) {
+                if (queue.length > 0) {
+                  yield queue.shift()
+                  continue
+                }
+                if (error) throw error
+                if (finished) break
+                await new Promise(res => setTimeout(res, 50))
+              }
+            } finally {
+              stop()
+            }
+          })()
+        }
+      },
+    }) as Routes['client']['streamers']
+  }
+
+  /**
+   * Handle an incoming message from the client -> server.
+   */
+  async function handleMessage(ws: uWS.WebSocket<unknown>, rawData: ArrayBuffer | string) {
+    const str = typeof rawData === 'string' ? rawData : Buffer.from(rawData).toString('utf8')
 
     let msg: any
     try {
       msg = JSON.parse(str)
-    } catch (err) {
-      console.error('Invalid JSON message received:', str)
+    } catch {
+      console.error('Invalid JSON from client:', str)
       return
     }
+    if (!msg || typeof msg !== 'object') return
 
-    const ctx = contexts.get(ws)!
-    if (!msg || typeof msg !== 'object') {
-      return
-    }
+    const ctx = contexts.get(ws)
+    if (!ctx) return
 
     const { type, side, id, name, args } = msg
 
-    // 1. If this is a "proc_result" or "stream_chunk" or "stream_end" from the client
-    //    responding to a server->client call, handle that.
+    // 1) If this is a response to a server->client call:
     if (type === 'proc_result') {
       const pending = pendingServerCalls.get(id)
       if (!pending) return
@@ -195,44 +236,40 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
     }
 
     if (type === 'stream_chunk' || type === 'stream_end') {
-      // Not used by examples for server->client streaming. You'd collect chunk in a queue here
-      // if implementing 2-way streaming. For simplicity, we skip a full example implementation.
+      // Not fully shown for server->client streaming
       return
     }
 
-    // 2. If this is a "proc" or "stream_start" from the client->server, handle the server's handlers
-    if (type === 'proc' && side === 'server') {
-      const fn = (handlers as any)[name]
+    // 2) If this is a client->server request:
+    if ((type === 'proc' || type === 'stream_start') && side === 'server') {
+      const fn = handlers[name]
       if (typeof fn !== 'function') {
-        // Return an error
-        ws.send(JSON.stringify({ type: 'proc_result', id, error: `No such server procedure: ${name}` }))
+        // No such handler
+        if (type === 'proc') {
+          ws.send(JSON.stringify({ type: 'proc_result', id, error: `No server procedure: ${name}` }))
+        } else {
+          ws.send(JSON.stringify({ type: 'stream_end', id, error: `No server streamer: ${name}` }))
+        }
         return
       }
+
+      // We call the wrapped function (args[], ctx).
       try {
         const result = fn(args, ctx)
+        // If it’s an async generator, we stream results
         if (isAsyncGenerator(result)) {
-          // It's a streaming function
-          // We'll start streaming back to the client
-          const streamId = id
           ;(async () => {
             try {
               for await (const chunk of result) {
-                const chunkMsg = {
-                  type: 'stream_chunk',
-                  id: streamId,
-                  chunk,
-                }
-                ws.send(JSON.stringify(chunkMsg))
+                ws.send(JSON.stringify({ type: 'stream_chunk', id, chunk }))
               }
-              const endMsg = { type: 'stream_end', id: streamId }
-              ws.send(JSON.stringify(endMsg))
+              ws.send(JSON.stringify({ type: 'stream_end', id }))
             } catch (err) {
-              const endMsg = { type: 'stream_end', id: streamId, error: String(err) }
-              ws.send(JSON.stringify(endMsg))
+              ws.send(JSON.stringify({ type: 'stream_end', id, error: String(err) }))
             }
           })()
         } else {
-          // It's a normal (sync or async) function
+          // Normal function (sync or async)
           Promise.resolve(result)
             .then(res => {
               ws.send(JSON.stringify({ type: 'proc_result', id, result: res }))
@@ -242,76 +279,39 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
             })
         }
       } catch (err) {
-        ws.send(JSON.stringify({ type: 'proc_result', id, error: String(err) }))
-      }
-      return
-    }
-
-    if (type === 'stream_start' && side === 'server') {
-      const fn = (handlers as any)[name]
-      if (typeof fn !== 'function') {
-        // Return an error
-        const errMsg = {
-          type: 'stream_end',
-          id,
-          error: `No such server streamer: ${name}`,
+        if (type === 'proc') {
+          ws.send(JSON.stringify({ type: 'proc_result', id, error: String(err) }))
+        } else {
+          ws.send(JSON.stringify({ type: 'stream_end', id, error: String(err) }))
         }
-        ws.send(JSON.stringify(errMsg))
-        return
-      }
-      try {
-        const result = fn(args, ctx)
-        if (!isAsyncGenerator(result)) {
-          // Not actually a streamer, treat as error
-          const errMsg = {
-            type: 'stream_end',
-            id,
-            error: `Handler ${name} is not an async generator`,
-          }
-          ws.send(JSON.stringify(errMsg))
-          return
-        }
-        ;(async () => {
-          try {
-            for await (const chunk of result) {
-              ws.send(JSON.stringify({ type: 'stream_chunk', id, chunk }))
-            }
-            ws.send(JSON.stringify({ type: 'stream_end', id }))
-          } catch (err) {
-            ws.send(JSON.stringify({ type: 'stream_end', id, error: String(err) }))
-          }
-        })()
-      } catch (err) {
-        ws.send(JSON.stringify({ type: 'stream_end', id, error: String(err) }))
       }
       return
     }
 
     if (type === 'stream_stop') {
-      // Client requests to stop a streaming. For brevity, not fully handled here.
-      // You'd typically want a way to abort the generator or cleanup.
+      // Client wants to stop a stream. Not fully handled here.
       return
     }
   }
 
-  // Create the uWebSockets.js server
+  // Create the uWS.App
   const app = uWS.App()
 
   app.ws('/*', {
     open: ws => {
-      // Create a fresh context for this connection
+      // Build a context object for this connection
       const context = {} as Context & {
-        ws: uWS.WebSocket
+        ws: uWS.WebSocket<unknown>
         procs: Routes['client']['procs']
         streamers: Routes['client']['streamers']
       }
       context.ws = ws
-      context.procs = makeClientProcs(ws) as Routes['client']['procs']
-      context.streamers = makeClientStreamers(ws) as Routes['client']['streamers']
+      context.procs = makeClientProcs(ws)
+      context.streamers = makeClientStreamers(ws)
 
       contexts.set(ws, context)
 
-      // Let user code populate or handle the context
+      // Call user’s onConnection
       if (options?.onConnection) {
         Promise.resolve(options.onConnection(context)).catch(err => {
           console.error('onConnection error:', err)
@@ -321,7 +321,7 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
 
     message: (ws, message, isBinary) => {
       handleMessage(ws, message).catch(err => {
-        console.error('Failed to handle message:', err)
+        console.error('Error handling client message:', err)
       })
     },
 
@@ -332,13 +332,13 @@ export function makeTswsServer<Routes, Context = Record<string, any>>(
 
   return {
     /**
-     * Start listening on the configured port
+     * Start listening on the configured port.
      */
     start() {
       return new Promise<void>((resolve, reject) => {
         app.listen(port, token => {
           if (!token) {
-            reject(new Error('Failed to listen on port ' + port))
+            reject(new Error(`Failed to listen on port ${port}`))
           } else {
             resolve()
           }
