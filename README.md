@@ -130,7 +130,7 @@ function sleep(ms = 1000) {
 
 // ----------------------------------------
 
-// example-client-server.ts
+// example-big-client.ts
 import { connectTo } from './tsws-node-client';
 import type { Routes } from './example-big-server';
 
