@@ -1,0 +1,21 @@
+{
+  "name": "tsws-example",
+  "version": "1.0.0",
+  "description": "TypeScript WebSockets Example (TSWS) with Node.js and uWebSockets.js",
+  "scripts": {
+    "build": "tsc",
+    "start:little-server": "node dist/example-little-server.js",
+    "start:little-client": "node dist/example-little-client.js",
+    "start:big-server": "node dist/example-big-server.js",
+    "start:big-client": "node dist/example-big-client.js"
+  },
+  "dependencies": {
+    "@types/node": "20",
+    "@types/ws": "^8.18.0",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.15.0",
+    "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.9.5"
+  }
+}
