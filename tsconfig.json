@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2020", // or a suitable modern target
+    "module": "commonjs", // typical for Node.js
+    "strict": true, // enable strict type-checking
+    "esModuleInterop": true, // allows default import from commonjs
+    "skipLibCheck": true, // optional: speeds up build if you're okay skipping .d.ts checks
+    "outDir": "dist", // where compiled .js files will go
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "**/*.ts" // include all .ts files in the project
+  ],
+  "exclude": ["node_modules"]
+}
