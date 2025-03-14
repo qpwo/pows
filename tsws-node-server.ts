@@ -1,76 +1,164 @@
 // tsws-node-server.ts
-
 import uWS from 'uWebSockets.js'
 
 /**
- * A marker type to ensure Routes has the shape:
+ * Fix for "Generic type 'WebSocket<UserData>' requires 1 type argument(s)."
+ * We'll just store <unknown>.
+ */
+type Ws = uWS.WebSocket<unknown>
+
+/**
+ * SERVER-SIDE ROUTE SIGNATURES
+ *
+ * In your examples, you define e.g.:
+ *   whoami(_: Empty): Promise<{ name: string, userId: number }>
+ * but then implement it as:
+ *   async whoami(_, ctx) { ... }
+ *
+ * So we want the *exported* type to be (args: X, ctx: ServerCtx) => Return
+ * so the user's code can do two parameters without error.
+ */
+type ServerProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
+  ? (args: A, ctx: Ctx) => R
+  : never
+
+type ServerStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
+  ? (args: A, ctx: Ctx) => R
+  : never
+
+/**
+ * CLIENT-SIDE ROUTE SIGNATURES
+ *
+ * On the server side, we sometimes call "ctx.clientProcs.someProc(args)".
+ * The user’s route is e.g. "approve(_: { question: string }): Promise<{ approved: boolean }>"
+ * but we implement "async approve({ question }, ctx) { ... }".
+ * So again, we want the final shape to be (args, ctx).
+ */
+// type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
+//   ? (args: A, ctx: Ctx) => R
+//   : never
+
+// type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
+//   ? (args: A, ctx: Ctx) => R
+//   : never
+type ClientProc<Fn> = Fn extends (args: infer A) => infer R
+  ? (args: A) => R
+  : never
+
+type ClientStreamer<Fn> = Fn extends (args: infer A) => infer R
+  ? (args: A) => R
+  : never
+
+/**
+ * The user’s "Routes" interface is conceptually:
  *   {
- *     server: { procs, streamers },
- *     client: { procs, streamers },
+ *     server: {
+ *       procs: Record<string, (args) => Promise<any>>,
+ *       streamers: Record<string, (args) => AsyncGenerator<any>>
+ *     },
+ *     client: {
+ *       procs: ...,
+ *       streamers: ...
+ *     }
  *   }
+ * but each method is *really* 2-parameter at runtime, `(args, ctx)`.
+ * We'll transform them accordingly below.
  */
 export type RoutesConstraint = {
   server: {
-    procs: Record<string, (args: any, ctx: any) => any>
-    streamers: Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
-  }
+    procs: Record<string, (args: any) => Promise<any>>,
+    streamers: Record<string, (args: any) => AsyncGenerator<any>>
+  },
   client: {
-    procs: Record<string, (args: any, ctx: any) => any>
-    streamers: Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
+    procs: Record<string, (args: any) => Promise<any>>,
+    streamers: Record<string, (args: any) => AsyncGenerator<any>>
   }
 }
 
 /**
- * The server context that will be passed to each server-side
- * procedure or streamer. It includes:
- *   - ws: the uWebSockets.js connection
- *   - clientProcs / clientStreamers: for calling the client's RPC
+ * ServerContext, as seen by *server* code:
+ *   - ws: the underlying uWS WebSocket
+ *   - clientProcs: calls to the client's procs
+ *   - clientStreamers: calls to the client's streamers
+ * plus any user-defined fields in "ServerContext".
  */
-export type TswsServerContext<Routes extends RoutesConstraint, ServerContext> = ServerContext & {
-  ws: uWS.WebSocket
-  clientProcs: {
-    [K in keyof Routes['client']['procs']]: (
-      args: Parameters<Routes['client']['procs'][K]>[0]
-    ) => ReturnType<Routes['client']['procs'][K]>
+export type TswsServerContext<Routes extends RoutesConstraint, ServerContext> =
+  ServerContext & {
+    ws: Ws
+    clientProcs: {
+      [K in keyof Routes['client']['procs']]: ClientProc<
+        Routes['client']['procs'][K]
+        // ,TswsServerContext<Routes, ServerContext>
+      >
+    }
+    clientStreamers: {
+      [K in keyof Routes['client']['streamers']]: ClientStreamer<
+        Routes['client']['streamers'][K]
+        // ,TswsServerContext<Routes, ServerContext>
+      >
+    }
   }
-  clientStreamers: {
-    [K in keyof Routes['client']['streamers']]: (
-      args: Parameters<Routes['client']['streamers'][K]>[0]
-    ) => ReturnType<Routes['client']['streamers'][K]>
-  }
+
+/**
+ * The server procs we expect from the user: for each route method
+ * e.g. "square(_: {x: number}): Promise<{result: number}>"
+ * we produce (args: {x:number}, ctx: TswsServerContext<...>) => Promise<{result: number}>
+ */
+type TswsServerProcs<Routes extends RoutesConstraint, ServerContext> = {
+  [K in keyof Routes['server']['procs']]: ServerProc<
+    Routes['server']['procs'][K],
+    TswsServerContext<Routes, ServerContext>
+  >
+}
+type TswsServerStreamers<Routes extends RoutesConstraint, ServerContext> = {
+  [K in keyof Routes['server']['streamers']]: ServerStreamer<
+    Routes['server']['streamers'][K],
+    TswsServerContext<Routes, ServerContext>
+  >
 }
 
+/**
+ * Options for makeTswsServer.
+ */
 export interface TswsServerOpts<
   Routes extends RoutesConstraint,
   ServerContext
 > {
-  procs: Routes['server']['procs']
-  streamers: Routes['server']['streamers']
+  procs: TswsServerProcs<Routes, ServerContext>
+  streamers: TswsServerStreamers<Routes, ServerContext>
   port?: number
   onConnection?: (
     ctx: TswsServerContext<Routes, ServerContext>
   ) => void | Promise<void>
 }
 
+/**
+ * The returned server object with start().
+ */
 export interface TswsServer<Routes extends RoutesConstraint, ServerContext> {
   start: () => Promise<void>
 }
 
+/**
+ * The actual server function. Internally, we store everything as
+ * `(args: any, ctx: any) => any` but we *export* the typed version above
+ * so that user code type-checks perfectly with two parameters.
+ */
 export function makeTswsServer<
   Routes extends RoutesConstraint,
   ServerContext = {}
 >(opts: TswsServerOpts<Routes, ServerContext>): TswsServer<Routes, ServerContext> {
   const {
-    procs: serverProcs,
-    streamers: serverStreamers,
+    procs,
+    streamers,
     port = 8080,
-    onConnection,
+    onConnection
   } = opts
 
-  // For each WS, store:
-  //   - nextReqId: counter for calls we make from server->client
-  //   - pendingCalls: map of requestId -> { resolve, reject, possibly streaming }
-  //   - activeServerStreams: requestId -> active AsyncGenerator from server->client
+  // Internally, we treat the user procs & streamers as any => any:
+  const internalProcs = procs as Record<string, (args: any, ctx: any) => any>
+  const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
+
   interface PerSocketData {
     nextReqId: number
     pendingCalls: Map<
@@ -89,37 +177,38 @@ export function makeTswsServer<
     activeServerStreams: Map<number, AsyncGenerator<any>>
   }
 
-  // Each uWS.WebSocket has a `_tswsData` property.
-  function wsData(ws: uWS.WebSocket): PerSocketData {
+  const wsToContext = new WeakMap<Ws, TswsServerContext<Routes, ServerContext>>()
+
+  function wsData(ws: Ws): PerSocketData {
     return (ws as any)._tswsData
   }
 
-  // We track the server context object for each WS:
-  const wsToContext = new WeakMap<uWS.WebSocket, TswsServerContext<Routes, ServerContext>>()
-
-  // Create the server app
   const app = uWS.App().ws('/*', {
-    open: (ws) => {
-      // Initialize PerSocketData
+    open: (ws: Ws) => {
       (ws as any)._tswsData = {
         nextReqId: 1,
         pendingCalls: new Map(),
-        activeServerStreams: new Map(),
+        activeServerStreams: new Map()
       } as PerSocketData
 
-      // Create the user’s ServerContext object
-      // plus "clientProcs" and "clientStreamers" proxies
+      // Build TswsServerContext
       const baseCtx = {} as ServerContext
-      const fullCtx = {
+      const fullCtx: TswsServerContext<Routes, ServerContext> = {
         ...baseCtx,
         ws,
-        clientProcs: makeClientProcs(ws),
-        clientStreamers: makeClientStreamers(ws),
-      } as TswsServerContext<Routes, ServerContext>
-
+        clientProcs: new Proxy({}, {
+          get(_t, methodName) {
+            return (args: any) => callRemoteProc(ws, 'client', methodName as string, args)
+          }
+        }) as any,
+        clientStreamers: new Proxy({}, {
+          get(_t, methodName) {
+            return (args: any) => callRemoteStreamer(ws, 'client', methodName as string, args)
+          }
+        }) as any
+      }
       wsToContext.set(ws, fullCtx)
 
-      // onConnection hook
       if (onConnection) {
         Promise.resolve(onConnection(fullCtx)).catch((err) => {
           console.error('onConnection error:', err)
@@ -127,22 +216,21 @@ export function makeTswsServer<
       }
     },
 
-    message: (ws, message, isBinary) => {
+    message: (ws: Ws, message, isBinary) => {
       if (isBinary) return
       let msg: any
       try {
         msg = JSON.parse(Buffer.from(message).toString('utf8'))
       } catch (e) {
-        console.error('Invalid JSON:', e)
+        console.error('Invalid JSON from client:', e)
         return
       }
       handleMessage(ws, msg).catch((err) => {
-        console.error('Error in handleMessage:', err)
+        console.error('handleMessage error:', err)
       })
     },
 
-    close: (ws) => {
-      // cleanup any pending calls or server streams
+    close: (ws: Ws) => {
       const data = wsData(ws)
       for (const [, pc] of data.pendingCalls) {
         pc.reject(new Error('Connection closed'))
@@ -158,37 +246,11 @@ export function makeTswsServer<
     },
   })
 
-  // Helper: create a "clientProcs" object that calls side='client'
-  function makeClientProcs(ws: uWS.WebSocket) {
-    return new Proxy(
-      {},
-      {
-        get(_target, methodName) {
-          return (args: any) => callRemoteProc(ws, 'client', methodName as string, args)
-        },
-      }
-    ) as TswsServerContext<Routes, ServerContext>['clientProcs']
-  }
-
-  // Helper: create a "clientStreamers" object that calls side='client'
-  function makeClientStreamers(ws: uWS.WebSocket) {
-    return new Proxy(
-      {},
-      {
-        get(_target, methodName) {
-          return (args: any) =>
-            callRemoteStreamer(ws, 'client', methodName as string, args)
-        },
-      }
-    ) as TswsServerContext<Routes, ServerContext>['clientStreamers']
-  }
-
-  function sendJson(ws: uWS.WebSocket, obj: any) {
+  function sendJson(ws: Ws, obj: any) {
     ws.send(JSON.stringify(obj))
   }
 
-  // Server->client calls (procedures)
-  function callRemoteProc(ws: uWS.WebSocket, side: 'server' | 'client', method: string, args: any) {
+  function callRemoteProc(ws: Ws, side: 'server' | 'client', method: string, args: any) {
     const data = wsData(ws)
     const reqId = data.nextReqId++
     return new Promise<any>((resolve, reject) => {
@@ -204,13 +266,7 @@ export function makeTswsServer<
     })
   }
 
-  // Server->client calls (streamers)
-  function callRemoteStreamer(
-    ws: uWS.WebSocket,
-    side: 'server' | 'client',
-    method: string,
-    args: any
-  ): AsyncGenerator<any> {
+  function callRemoteStreamer(ws: Ws, side: 'server' | 'client', method: string, args: any): AsyncGenerator<any> {
     const data = wsData(ws)
     const reqId = data.nextReqId++
 
@@ -221,7 +277,6 @@ export function makeTswsServer<
     const queue: any[] = []
 
     const gen = (async function* () {
-      // Send initial request
       sendJson(ws, {
         type: 'rpc',
         side,
@@ -230,9 +285,8 @@ export function makeTswsServer<
         args,
         streaming: true,
       })
-
       while (true) {
-        if (queue.length) {
+        if (queue.length > 0) {
           yield queue.shift()
         } else if (ended) {
           return
@@ -283,13 +337,11 @@ export function makeTswsServer<
     return gen
   }
 
-  async function handleMessage(ws: uWS.WebSocket, msg: any) {
+  async function handleMessage(ws: Ws, msg: any) {
+    const data = wsData(ws)
     const ctx = wsToContext.get(ws)
     if (!ctx) return
 
-    const data = wsData(ws)
-
-    // "rpc" means this is a request calling the server or client
     if (msg.type === 'rpc') {
       const side = msg.side as 'server' | 'client'
       const reqId = msg.reqId
@@ -300,8 +352,7 @@ export function makeTswsServer<
       if (side === 'server') {
         // client->server call
         if (!isStream) {
-          // normal RPC
-          const fn = serverProcs[method]
+          const fn = internalProcs[method]
           if (!fn) {
             sendJson(ws, {
               type: 'rpc-res',
@@ -312,6 +363,7 @@ export function makeTswsServer<
             return
           }
           try {
+            // call with (args, ctx)
             const result = await fn(args, ctx)
             sendJson(ws, { type: 'rpc-res', reqId, ok: true, data: result })
           } catch (err: any) {
@@ -323,9 +375,8 @@ export function makeTswsServer<
             })
           }
         } else {
-          // streaming RPC
-          const streamFn = serverStreamers[method]
-          if (!streamFn) {
+          const fn = internalStreamers[method]
+          if (!fn) {
             sendJson(ws, {
               type: 'rpc-res',
               reqId,
@@ -336,7 +387,7 @@ export function makeTswsServer<
           }
           let gen: AsyncGenerator<any>
           try {
-            gen = streamFn(args, ctx)
+            gen = fn(args, ctx)
           } catch (err: any) {
             sendJson(ws, {
               type: 'rpc-res',
@@ -346,7 +397,6 @@ export function makeTswsServer<
             })
             return
           }
-          // Indicate streaming start
           sendJson(ws, {
             type: 'rpc-res',
             reqId,
@@ -355,23 +405,20 @@ export function makeTswsServer<
           })
           data.activeServerStreams.set(reqId, gen)
           pushServerStream(ws, reqId, gen).catch((err) => {
-            console.error('Server streaming error:', err)
+            console.error('pushServerStream error:', err)
           })
         }
       } else {
-        // side==='client' => the server would be calling the client's procedures,
-        // but we are on the server. Possibly a mismatch => respond with error:
+        // side==='client' => error if we get it here
         sendJson(ws, {
           type: 'rpc-res',
           reqId,
           ok: false,
-          error: "Got side='client' call on the server; ignoring.",
+          error: 'Received side="client" call on server; ignoring.',
         })
       }
-    }
-
-    // "rpc-res" => a response to a server->client call we made
-    else if (msg.type === 'rpc-res') {
+    } else if (msg.type === 'rpc-res') {
+      // server->client call response
       const reqId = msg.reqId
       const pc = data.pendingCalls.get(reqId)
       if (!pc) return
@@ -380,39 +427,33 @@ export function makeTswsServer<
           data.pendingCalls.delete(reqId)
           pc.resolve(msg.data)
         } else {
-          // streaming started
           pc.resolve(undefined)
         }
       } else {
         data.pendingCalls.delete(reqId)
         pc.reject(new Error(msg.error || 'Unknown error'))
       }
-    }
-
-    // "stream-chunk", "stream-end", "stream-error" => part of a stream from client->server
-    else if (msg.type === 'stream-chunk') {
-      const reqId = msg.reqId
-      const pc = data.pendingCalls.get(reqId)
+    } else if (msg.type === 'stream-chunk') {
+      // chunk from client
+      const pc = data.pendingCalls.get(msg.reqId)
       if (!pc || !pc.streaming) return
       pc.streamController?.push(msg.chunk)
     } else if (msg.type === 'stream-end') {
-      const reqId = msg.reqId
-      const pc = data.pendingCalls.get(reqId)
+      // end from client
+      const pc = data.pendingCalls.get(msg.reqId)
       if (!pc || !pc.streaming) return
-      data.pendingCalls.delete(reqId)
+      data.pendingCalls.delete(msg.reqId)
       pc.streamController?.end()
     } else if (msg.type === 'stream-error') {
-      const reqId = msg.reqId
-      const pc = data.pendingCalls.get(reqId)
+      // error from client
+      const pc = data.pendingCalls.get(msg.reqId)
       if (!pc || !pc.streaming) return
-      data.pendingCalls.delete(reqId)
+      data.pendingCalls.delete(msg.reqId)
       pc.streamController?.error(new Error(msg.error || 'Unknown stream error'))
     }
-
-    // "cancel" not implemented in these examples
   }
 
-  async function pushServerStream(ws: uWS.WebSocket, reqId: number, gen: AsyncGenerator<any>) {
+  async function pushServerStream(ws: Ws, reqId: number, gen: AsyncGenerator<any>) {
     const data = wsData(ws)
     try {
       for await (const chunk of gen) {

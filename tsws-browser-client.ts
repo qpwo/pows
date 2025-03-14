@@ -1,21 +1,50 @@
 // tsws-browser-client.ts
-
 import { RoutesConstraint } from './tsws-node-server'
 
 /**
- * A browser-based client version, using the built-in WebSocket.
+ * Browser-based client with the same approach as tsws-node-client,
+ * but using native `WebSocket` instead of `ws`.
  */
+type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
+  ? (args: A, ctx: Ctx) => R
+  : never
 
-export type TswsBrowserClientContext<Routes extends RoutesConstraint, ClientContext> = ClientContext & {
-  ws: WebSocket
+type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
+  ? (args: A, ctx: Ctx) => R
+  : never
+
+type CallServerProc<Fn> = Fn extends (args: infer A) => infer R
+  ? (args: A) => R
+  : never
+
+type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R
+  ? (args: A) => R
+  : never
+
+export type TswsBrowserClientContext<Routes extends RoutesConstraint, ClientContext> =
+  ClientContext & {
+    ws: WebSocket
+  }
+
+type TswsBrowserClientProcs<Routes extends RoutesConstraint, ClientContext> = {
+  [K in keyof Routes['client']['procs']]: ClientProc<
+    Routes['client']['procs'][K],
+    TswsBrowserClientContext<Routes, ClientContext>
+  >
+}
+type TswsBrowserClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
+  [K in keyof Routes['client']['streamers']]: ClientStreamer<
+    Routes['client']['streamers'][K],
+    TswsBrowserClientContext<Routes, ClientContext>
+  >
 }
 
 export interface TswsBrowserClientOpts<
   Routes extends RoutesConstraint,
   ClientContext
 > {
-  procs: Routes['client']['procs']
-  streamers: Routes['client']['streamers']
+  procs: TswsBrowserClientProcs<Routes, ClientContext>
+  streamers: TswsBrowserClientStreamers<Routes, ClientContext>
   url: string
   onOpen?: (ctx: TswsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
   onClose?: (ctx: TswsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
@@ -26,14 +55,10 @@ export interface TswsBrowserClient<Routes extends RoutesConstraint, ClientContex
   close: () => void
   server: {
     procs: {
-      [K in keyof Routes['server']['procs']]: (
-        args: Parameters<Routes['server']['procs'][K]>[0]
-      ) => ReturnType<Routes['server']['procs'][K]>
+      [K in keyof Routes['server']['procs']]: CallServerProc<Routes['server']['procs'][K]>
     }
     streamers: {
-      [K in keyof Routes['server']['streamers']]: (
-        args: Parameters<Routes['server']['streamers'][K]>[0]
-      ) => ReturnType<Routes['server']['streamers'][K]>
+      [K in keyof Routes['server']['streamers']]: CallServerStreamer<Routes['server']['streamers'][K]>
     }
   }
 }
@@ -42,7 +67,7 @@ export function makeTswsBrowserClient<
   Routes extends RoutesConstraint,
   ClientContext = {}
 >(opts: TswsBrowserClientOpts<Routes, ClientContext>): TswsBrowserClient<Routes, ClientContext> {
-  const { procs: clientProcs, streamers: clientStreamers, url, onOpen, onClose } = opts
+  const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
   let connected = false
@@ -63,11 +88,14 @@ export function makeTswsBrowserClient<
   >()
 
   const clientCtx: TswsBrowserClientContext<Routes, ClientContext> = {
-    ...({} as ClientContext),
+    ...( {} as ClientContext ),
     get ws() {
       return ws!
     },
   }
+
+  const internalProcs = procs as Record<string, (args: any, ctx: any) => Promise<any>>
+  const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
 
   const api: TswsBrowserClient<Routes, ClientContext> = {
     async connect() {
@@ -88,7 +116,7 @@ export function makeTswsBrowserClient<
         ws.onmessage = (ev) => {
           const dataStr = typeof ev.data === 'string' ? ev.data : ''
           handleMessage(dataStr).catch((err) => {
-            console.error('Error in handleMessage:', err)
+            console.error('handleMessage error:', err)
           })
         }
         ws.onerror = (err) => {
@@ -116,24 +144,17 @@ export function makeTswsBrowserClient<
       connected = false
     },
 
-    // Provide dynamic proxies for server procedures/streamers
     server: {
-      procs: new Proxy(
-        {},
-        {
-          get(_target, methodName) {
-            return (args: any) => callRemoteProc('server', methodName as string, args)
-          },
+      procs: new Proxy({}, {
+        get(_t, methodName) {
+          return (args: any) => callRemoteProc('server', methodName as string, args)
         }
-      ) as any,
-      streamers: new Proxy(
-        {},
-        {
-          get(_target, methodName) {
-            return (args: any) => callRemoteStreamer('server', methodName as string, args)
-          },
+      }) as any,
+      streamers: new Proxy({}, {
+        get(_t, methodName) {
+          return (args: any) => callRemoteStreamer('server', methodName as string, args)
         }
-      ) as any,
+      }) as any,
     },
   }
 
@@ -176,7 +197,6 @@ export function makeTswsBrowserClient<
         args,
         streaming: true,
       })
-
       while (true) {
         if (queue.length > 0) {
           yield queue.shift()
@@ -213,14 +233,14 @@ export function makeTswsBrowserClient<
       },
       streaming: true,
       streamController: {
-        push: (chunk) => {
+        push: (chunk: any) => {
           if (pullController) pullController(chunk)
           else queue.push(chunk)
         },
         end: () => {
           if (endController) endController()
         },
-        error: (err) => {
+        error: (err: any) => {
           if (errorController) errorController(err)
         },
       },
@@ -239,17 +259,15 @@ export function makeTswsBrowserClient<
     }
 
     if (msg.type === 'rpc') {
-      // The server is calling the client
-      const side = msg.side
+      const side = msg.side as 'server' | 'client'
       const reqId = msg.reqId
       const method = msg.method
       const args = msg.args
       const isStream = !!msg.streaming
 
       if (side === 'client') {
-        // normal or streaming call to client
         if (!isStream) {
-          const fn = clientProcs[method]
+          const fn = internalProcs[method]
           if (!fn) {
             sendJson({
               type: 'rpc-res',
@@ -263,11 +281,15 @@ export function makeTswsBrowserClient<
             const result = await fn(args, clientCtx)
             sendJson({ type: 'rpc-res', reqId, ok: true, data: result })
           } catch (err: any) {
-            sendJson({ type: 'rpc-res', reqId, ok: false, error: err?.message || String(err) })
+            sendJson({
+              type: 'rpc-res',
+              reqId,
+              ok: false,
+              error: err?.message || String(err),
+            })
           }
         } else {
-          // streaming
-          const fn = clientStreamers[method]
+          const fn = internalStreamers[method]
           if (!fn) {
             sendJson({
               type: 'rpc-res',
@@ -289,34 +311,32 @@ export function makeTswsBrowserClient<
             })
             return
           }
-          // indicate success
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
           pushClientStream(reqId, gen).catch((err) => {
-            console.error('Client streamer error:', err)
+            console.error('Browser client streamer error:', err)
           })
         }
       } else {
-        // side='server' from the server => possibly an error
+        // side==='server' => got on the client => mismatch
         sendJson({
           type: 'rpc-res',
           reqId,
           ok: false,
-          error: "Got side='server' call on the client; ignoring.",
+          error: 'Got side="server" call on the browser client; ignoring.',
         })
       }
     } else if (msg.type === 'rpc-res') {
-      const reqId = msg.reqId
-      const pc = pendingCalls.get(reqId)
+      const pc = pendingCalls.get(msg.reqId)
       if (!pc) return
       if (msg.ok) {
         if (!msg.streaming) {
-          pendingCalls.delete(reqId)
+          pendingCalls.delete(msg.reqId)
           pc.resolve(msg.data)
         } else {
           pc.resolve(undefined)
         }
       } else {
-        pendingCalls.delete(reqId)
+        pendingCalls.delete(msg.reqId)
         pc.reject(new Error(msg.error || 'Unknown error'))
       }
     } else if (msg.type === 'stream-chunk') {

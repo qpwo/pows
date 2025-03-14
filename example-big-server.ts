@@ -36,6 +36,9 @@ var api = makeTswsServer<Routes, ServerContext>({
         userId: ctx.userId ?? throwErr('No userId'),
       }
     },
+    async errorTest() {
+      throwErr('Test error')
+    },
   },
   streamers: {
     async *doBigJob(_, ctx) {

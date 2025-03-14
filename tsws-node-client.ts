@@ -1,22 +1,77 @@
 // tsws-node-client.ts
-
 import WebSocket from 'ws'
 import { RoutesConstraint } from './tsws-node-server'
 
 /**
- * Client context that is passed to "client" procs when called by the server.
- * It includes the raw ws (Node 'ws' module).
+ * CLIENT-SIDE ROUTE SIGNATURES
+ *
+ * In the "example-big-client.ts", you have:
+ *   approve(_: { question: string }): Promise<{ approved: boolean }>
+ * but you implement:
+ *   async approve({ question }, ctx) { ... }
+ *
+ * We want the final type: (args: { question: string }, ctx: TswsClientContext<...>) => ...
+ * so destructuring "question" is typed, and "ctx" is typed.
  */
-export type TswsClientContext<Routes extends RoutesConstraint, ClientContext> = ClientContext & {
-  ws: WebSocket
+type ClientProc<Fn, Ctx> = Fn extends (args: infer A) => infer R
+  ? (args: A, ctx: Ctx) => R
+  : never
+
+type ClientStreamer<Fn, Ctx> = Fn extends (args: infer A) => infer R
+  ? (args: A, ctx: Ctx) => R
+  : never
+
+/**
+ * For calling the *server* from the client, we want to expose "server.procs.foo"
+ * as a single-parameter method (args) => ReturnType, with *no* `ctx`.
+ */
+type CallServerProc<Fn> = Fn extends (args: infer A) => infer R
+  ? (args: A) => R
+  : never
+
+type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R
+  ? (args: A) => R
+  : never
+
+/**
+ * The user’s "Routes" interface is conceptually:
+ *   {
+ *     server: {
+ *       procs: (args) => Promise<any>,
+ *       streamers: (args) => AsyncGenerator<any>
+ *     },
+ *     client: {
+ *       procs: (args) => Promise<any>,
+ *       streamers: (args) => AsyncGenerator<any>
+ *     }
+ *   }
+ */
+export type TswsClientContext<Routes extends RoutesConstraint, ClientContext> =
+  ClientContext & {
+    ws: WebSocket
+  }
+
+type TswsClientProcs<Routes extends RoutesConstraint, ClientContext> = {
+  [K in keyof Routes['client']['procs']]: ClientProc<
+    Routes['client']['procs'][K],
+    TswsClientContext<Routes, ClientContext>
+  >
+}
+type TswsClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
+  [K in keyof Routes['client']['streamers']]: ClientStreamer<
+    Routes['client']['streamers'][K],
+    TswsClientContext<Routes, ClientContext>
+  >
 }
 
 export interface TswsClientOpts<
   Routes extends RoutesConstraint,
   ClientContext
 > {
-  procs: Routes['client']['procs']
-  streamers: Routes['client']['streamers']
+  // The user's local implementations for client procs & streamers:
+  procs: TswsClientProcs<Routes, ClientContext>
+  streamers: TswsClientStreamers<Routes, ClientContext>
+
   url: string
   onOpen?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
   onClose?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
@@ -25,25 +80,28 @@ export interface TswsClientOpts<
 export interface TswsClient<Routes extends RoutesConstraint, ClientContext> {
   connect: () => Promise<void>
   close: () => void
+  /**
+   * For calling the server’s procs & streamers. These do NOT take `ctx`.
+   * The user calls e.g. `api.server.procs.square({ x: 5 })`.
+   */
   server: {
     procs: {
-      [K in keyof Routes['server']['procs']]: (
-        args: Parameters<Routes['server']['procs'][K]>[0]
-      ) => ReturnType<Routes['server']['procs'][K]>
+      [K in keyof Routes['server']['procs']]: CallServerProc<Routes['server']['procs'][K]>
     }
     streamers: {
-      [K in keyof Routes['server']['streamers']]: (
-        args: Parameters<Routes['server']['streamers'][K]>[0]
-      ) => ReturnType<Routes['server']['streamers'][K]>
+      [K in keyof Routes['server']['streamers']]: CallServerStreamer<Routes['server']['streamers'][K]>
     }
   }
 }
 
+/**
+ * Implementation
+ */
 export function makeTswsClient<
   Routes extends RoutesConstraint,
   ClientContext = {}
 >(opts: TswsClientOpts<Routes, ClientContext>): TswsClient<Routes, ClientContext> {
-  const { procs: clientProcs, streamers: clientStreamers, url, onOpen, onClose } = opts
+  const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
   let connected = false
@@ -63,15 +121,19 @@ export function makeTswsClient<
     }
   >()
 
-  // The context we pass to client procs (server->client calls).
+  // The user’s client context
   const clientCtx: TswsClientContext<Routes, ClientContext> = {
-    ...({} as ClientContext),
+    ...( {} as ClientContext ),
     get ws() {
       return ws!
     },
   }
 
-  // Build the main API object
+  // Internally, treat procs/streamers as (args: any, ctx: any) => any
+  const internalProcs = procs as Record<string, (args: any, ctx: any) => Promise<any>>
+  const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
+
+  // For calling the server
   const api: TswsClient<Routes, ClientContext> = {
     async connect() {
       if (connected) return
@@ -90,7 +152,7 @@ export function makeTswsClient<
         }
         ws.onmessage = (ev) => {
           handleMessage(String(ev.data)).catch((err) => {
-            console.error('Error in handleMessage:', err)
+            console.error('handleMessage error:', err)
           })
         }
         ws.onerror = (err) => {
@@ -118,28 +180,20 @@ export function makeTswsClient<
       connected = false
     },
 
-    // We'll create dynamic proxies for server.procs and server.streamers:
     server: {
-      procs: new Proxy(
-        {},
-        {
-          get(_target, methodName) {
-            return (args: any) => callRemoteProc('server', methodName as string, args)
-          },
+      procs: new Proxy({}, {
+        get(_target, methodName) {
+          return (args: any) => callRemoteProc('server', methodName as string, args)
         }
-      ) as any,
-      streamers: new Proxy(
-        {},
-        {
-          get(_target, methodName) {
-            return (args: any) => callRemoteStreamer('server', methodName as string, args)
-          },
+      }) as any,
+      streamers: new Proxy({}, {
+        get(_target, methodName) {
+          return (args: any) => callRemoteStreamer('server', methodName as string, args)
         }
-      ) as any,
+      }) as any,
     },
   }
 
-  // Send JSON only if ws is open
   function sendJson(obj: any) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not open')
@@ -162,11 +216,7 @@ export function makeTswsClient<
     })
   }
 
-  function callRemoteStreamer(
-    side: 'server' | 'client',
-    method: string,
-    args: any
-  ): AsyncGenerator<any> {
+  function callRemoteStreamer(side: 'server' | 'client', method: string, args: any): AsyncGenerator<any> {
     const reqId = nextReqId++
 
     let pullController: ((chunk: any) => void) | null = null
@@ -184,7 +234,6 @@ export function makeTswsClient<
         args,
         streaming: true,
       })
-
       while (true) {
         if (queue.length > 0) {
           yield queue.shift()
@@ -237,17 +286,17 @@ export function makeTswsClient<
     return gen
   }
 
-  async function handleMessage(jsonStr: string) {
+  async function handleMessage(dataStr: string) {
     let msg: any
     try {
-      msg = JSON.parse(jsonStr)
-    } catch (e) {
-      console.error('Invalid JSON from server:', jsonStr)
+      msg = JSON.parse(dataStr)
+    } catch (err) {
+      console.error('Invalid JSON from server:', dataStr)
       return
     }
 
-    // type='rpc' => server calling the client
     if (msg.type === 'rpc') {
+      // server calling this client
       const side = msg.side as 'server' | 'client'
       const reqId = msg.reqId
       const method = msg.method
@@ -255,9 +304,8 @@ export function makeTswsClient<
       const isStream = !!msg.streaming
 
       if (side === 'client') {
-        // The server is calling our client procs/streamers
         if (!isStream) {
-          const fn = clientProcs[method]
+          const fn = internalProcs[method]
           if (!fn) {
             sendJson({
               type: 'rpc-res',
@@ -271,12 +319,16 @@ export function makeTswsClient<
             const result = await fn(args, clientCtx)
             sendJson({ type: 'rpc-res', reqId, ok: true, data: result })
           } catch (err: any) {
-            sendJson({ type: 'rpc-res', reqId, ok: false, error: err?.message || String(err) })
+            sendJson({
+              type: 'rpc-res',
+              reqId,
+              ok: false,
+              error: err?.message || String(err),
+            })
           }
         } else {
-          // streaming
-          const streamFn = clientStreamers[method]
-          if (!streamFn) {
+          const fn = internalStreamers[method]
+          if (!fn) {
             sendJson({
               type: 'rpc-res',
               reqId,
@@ -287,7 +339,7 @@ export function makeTswsClient<
           }
           let gen: AsyncGenerator<any>
           try {
-            gen = streamFn(args, clientCtx)
+            gen = fn(args, clientCtx)
           } catch (err: any) {
             sendJson({
               type: 'rpc-res',
@@ -297,59 +349,47 @@ export function makeTswsClient<
             })
             return
           }
-          // indicate streaming start
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
           pushClientStream(reqId, gen).catch((err) => {
             console.error('Client streamer error:', err)
           })
         }
       } else {
-        // side='server' from the server => nonsense. error out:
+        // side==='server' => we got it on the client => mismatch
         sendJson({
           type: 'rpc-res',
           reqId,
           ok: false,
-          error: "Got side='server' call on the client; ignoring.",
+          error: 'Got side="server" call on the client; ignoring.',
         })
       }
-    }
-
-    // type='rpc-res' => response to something we called server->client
-    else if (msg.type === 'rpc-res') {
-      const reqId = msg.reqId
-      const pc = pendingCalls.get(reqId)
+    } else if (msg.type === 'rpc-res') {
+      const pc = pendingCalls.get(msg.reqId)
       if (!pc) return
       if (msg.ok) {
         if (!msg.streaming) {
-          pendingCalls.delete(reqId)
+          pendingCalls.delete(msg.reqId)
           pc.resolve(msg.data)
         } else {
-          // streaming started
           pc.resolve(undefined)
         }
       } else {
-        pendingCalls.delete(reqId)
+        pendingCalls.delete(msg.reqId)
         pc.reject(new Error(msg.error || 'Unknown error'))
       }
-    }
-
-    // type='stream-chunk' => server is sending us a chunk
-    else if (msg.type === 'stream-chunk') {
-      const reqId = msg.reqId
-      const pc = pendingCalls.get(reqId)
+    } else if (msg.type === 'stream-chunk') {
+      const pc = pendingCalls.get(msg.reqId)
       if (!pc || !pc.streaming) return
       pc.streamController?.push(msg.chunk)
     } else if (msg.type === 'stream-end') {
-      const reqId = msg.reqId
-      const pc = pendingCalls.get(reqId)
+      const pc = pendingCalls.get(msg.reqId)
       if (!pc || !pc.streaming) return
-      pendingCalls.delete(reqId)
+      pendingCalls.delete(msg.reqId)
       pc.streamController?.end()
     } else if (msg.type === 'stream-error') {
-      const reqId = msg.reqId
-      const pc = pendingCalls.get(reqId)
+      const pc = pendingCalls.get(msg.reqId)
       if (!pc || !pc.streaming) return
-      pendingCalls.delete(reqId)
+      pendingCalls.delete(msg.reqId)
       pc.streamController?.error(new Error(msg.error || 'Unknown stream error'))
     }
   }

@@ -19,6 +19,20 @@ const api = makeTswsClient<Routes, ClientContext>({
 async function main() {
   await api.connect()
   console.log('connected!')
+
+  const myMsg = 'You should have got an error'
+  try {
+    await api.server.procs.errorTest({})
+    throw new Error(myMsg)
+  } catch (err_) {
+    const err = err_ as Error
+    if (err.message !== myMsg) {
+      console.log("Got error yay", err.message)
+    } else {
+      console.error('Error not thrown as expected:', err.message)
+    }
+  }
+
   console.log('Square(5):', await api.server.procs.square({ x: 5 }))
   console.log('Who am I?:', await api.server.procs.whoami({}))
   for await (const update of api.server.streamers.doBigJob({})) {
