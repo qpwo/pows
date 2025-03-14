@@ -22,7 +22,7 @@ async function main() {
 
   const myMsg = 'I expect to get this back'
   try {
-    await api.server.procs.errorTest({msg: myMsg})
+    await api.server.procs.errorTest({ msg: myMsg })
   } catch (e) {
     const err = e as Error
     if (err.message === myMsg) {
