@@ -16,9 +16,11 @@ build({
   entryPoints: [inputFile],
   // outfile: outputFile,
   outdir: 'dist',
-  plugins: [UnpluginTypia({
-    cache: true,
-  })],
+  plugins: [
+    UnpluginTypia({
+      cache: true,
+    }),
+  ],
   platform: 'node',
   bundle: true,
   sourcemap: true,

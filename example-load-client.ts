@@ -17,22 +17,25 @@ const streamerLabels = new Set(['countUp', 'randomNumbers', 'callClientStreamerX
  * plus the route definitions from the server. "procs" and "streamers"
  * here implement the callbacks the server might call, i.e. "clientProcA", etc.
  */
-const api = makeTswsClient(Routes, {
+const api = makeTswsClient<typeof Routes, ClientCtx>(Routes, {
   procs: {
-    async clientProcA({ ping }) {
-      return { pong: `${ping} -> clientProcA says hi!` }
+    // Changed to accept a string and return a string
+    async clientProcA(ping) {
+      return `${ping} -> clientProcA says hi!`
     },
-    async clientProcB({ question }) {
-      return { answer: 'clientProcB answer: Definitely yes!' }
+    async clientProcB(question) {
+      return 'clientProcB answer: Definitely yes!'
     },
   },
   streamers: {
-    async *clientStreamerX({ hello }) {
+    // Now accepts a string, yields strings
+    async *clientStreamerX(hello) {
       for (let i = 0; i < 3; i++) {
         yield `clientStreamerX chunk #${i} - responding to "${hello}"`
       }
     },
-    async *clientStreamerY({ data }) {
+    // Now accepts an array of numbers, yields numbers
+    async *clientStreamerY(data) {
       for (const item of data) {
         yield item * 10
       }
@@ -51,17 +54,13 @@ async function main() {
     {
       label: 'addOne',
       fn: async () => {
-        await api.server.procs.addOne({
-          value: Math.floor(Math.random() * 100),
-        })
+        await api.server.procs.addOne(Math.floor(Math.random() * 100))
       },
     },
     {
       label: 'double',
       fn: async () => {
-        await api.server.procs.double({
-          value: Math.floor(Math.random() * 50),
-        })
+        await api.server.procs.double(Math.floor(Math.random() * 50))
       },
     },
     {
@@ -76,7 +75,7 @@ async function main() {
     {
       label: 'randomNumbers',
       fn: async () => {
-        const stream = api.server.streamers.randomNumbers({ count: 3 })
+        const stream = api.server.streamers.randomNumbers(3)
         for await (const _chunk of stream) {
           chunkCounters['randomNumbers']++
         }
@@ -174,9 +173,9 @@ async function loopCaller(label: string, fn: () => Promise<void>) {
       counters[label]++
     } catch (e) {
       if (!errored) {
+        errored = true
         console.error(`Error in ${label}:`, e)
-      }
-      else {
+      } else {
         process.stdout.write('(e)')
       }
     }
