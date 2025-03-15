@@ -174,8 +174,12 @@ export function makePowsClient<Routes extends PowsRoutes, ClientContext = {}>(
     // Validate the input using routes
     let inAssert, outAssert
     try {
-      const route = side === 'server' ? routes.server.procs[method] : routes.client.procs[method]
-      if (!route) throw new Error(`No ${side} proc named '${method}'`)
+      const procs = side === 'server' ? routes.server.procs : routes.client.procs
+      const route = procs[method]
+      if (!route) {
+        console.log({ msg: 'rip', side, method, procs })
+        throw new Error(`No ${side} proc named '${method}'`)
+      }
       inAssert = route[0]
       outAssert = route[1]
     } catch (err) {

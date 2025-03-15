@@ -9,7 +9,7 @@ type Empty = Record<string, never>
  * has 1 proc for callbacks. Each route is [ inAssert, outAssert ] or
  * [ inAssert, chunkAssert ] for streamers.
  */
-export const Routes = {
+export const Routes2 = {
   server: {
     procs: {
       square: [ca<{ x: number }>(), ca<{ result: number }>()],
@@ -39,7 +39,7 @@ type ServerContext = {
 /**
  * Implement the server logic:
  */
-const api = makePowsServer<typeof Routes, ServerContext>(Routes, {
+const api = makePowsServer<typeof Routes2, ServerContext>(Routes2, {
   procs: {
     async square({ x }, ctx) {
       return { result: x * x }
@@ -74,12 +74,17 @@ const api = makePowsServer<typeof Routes, ServerContext>(Routes, {
     ctx.username = 'Alice'
     ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
   },
-  port: 8080,
+  port: 8081,
 })
 
 function sleep(ms = 1000) {
   return new Promise(res => setTimeout(res, ms))
 }
 
-console.log('starting api')
-api.start().then(() => console.log('started!'))
+/**
+ * Only start the server if this file is run directly.
+ */
+if (require.main === module) {
+  console.log('starting api')
+  api.start().then(() => console.log('started!'))
+}

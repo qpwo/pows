@@ -1,9 +1,9 @@
 // example-big-client.ts
 import { makePowsClient } from './pows-node-client'
-import { Routes } from './example-big-server'
+import { Routes2 } from './example-big-server'
 
 async function main() {
-  const api = makePowsClient(Routes, {
+  const api = makePowsClient(Routes2, {
     procs: {
       // Implementation of the client's "approve" callback
       async approve({ question }, ctx) {
@@ -13,7 +13,7 @@ async function main() {
       },
     },
     streamers: {},
-    url: 'ws://localhost:8080',
+    url: 'ws://localhost:8081',
   })
 
   await api.connect()

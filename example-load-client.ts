@@ -1,6 +1,6 @@
 // example-load-client.ts
 import { makePowsClient } from './pows-node-client'
-import { Routes } from './example-load-server' // We import the same Routes object
+import { Routes3 } from './example-load-server' // We import the same Routes3 object
 
 type ClientCtx = {}
 
@@ -17,7 +17,7 @@ const streamerLabels = new Set(['countUp', 'randomNumbers', 'callClientStreamerX
  * plus the route definitions from the server. "procs" and "streamers"
  * here implement the callbacks the server might call, i.e. "clientProcA", etc.
  */
-const api = makePowsClient<typeof Routes, ClientCtx>(Routes, {
+const api = makePowsClient<typeof Routes3, ClientCtx>(Routes3, {
   procs: {
     // Changed to accept a string and return a string
     async clientProcA(ping) {
@@ -41,7 +41,7 @@ const api = makePowsClient<typeof Routes, ClientCtx>(Routes, {
       }
     },
   },
-  url: 'ws://localhost:8080',
+  url: 'ws://localhost:8082',
 })
 
 async function main() {

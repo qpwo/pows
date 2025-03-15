@@ -222,8 +222,12 @@ export function makePowsServer<Routes extends PowsRoutes, ServerContext = {}>(
     // Validate input before sending, using the route definitions we hold:
     let inAssert, outAssert
     try {
-      const route = side === 'server' ? routes.server.procs[method] : routes.client.procs[method]
-      if (!route) throw new Error(`No ${side} proc named '${method}'`)
+      const procs = side === 'server' ? routes.server.procs : routes.client.procs
+      const route = procs[method]
+      if (!route) {
+        console.log({ msg: 'fuuk', side, method, procs })
+        throw new Error(`No ${side} proc named '${method}'`)
+      }
       inAssert = route[0]
       outAssert = route[1]
     } catch (err) {
@@ -376,6 +380,7 @@ export function makePowsServer<Routes extends PowsRoutes, ServerContext = {}>(
           // It's a proc
           const route = routes.server.procs[method]
           if (!route) {
+            console.log({ msg: 'oh no', method, route, procs: routes.server.procs })
             sendJson(ws, {
               type: 'rpc-res',
               reqId,
