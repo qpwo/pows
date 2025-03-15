@@ -1,49 +1,63 @@
 // example-big-server.ts
-import { makeTswsServer, type RoutesConstraint } from './tsws-node-server'
+import { makeTswsServer } from './tsws-node-server'
+import { createAssert as ca } from 'typia'
+
 type Empty = Record<string, never>
-export interface Routes {
+
+/**
+ * "Big" routes example. The server has 3 procs and 1 streamer; the client
+ * has 1 proc for callbacks. Each route is [ inAssert, outAssert ] or
+ * [ inAssert, chunkAssert ] for streamers.
+ */
+export const Routes = {
   server: {
     procs: {
-      square(_: { x: number }): Promise<{ result: number }>
-      whoami(_: Empty): Promise<{ name: string; userId: number }>
-      errorTest(_: { msg: string }): Promise<void>
-    }
+      square: [ ca<{ x: number }>(), ca<{ result: number }>() ],
+      whoami: [ ca<Empty>(), ca<{ name: string; userId: number }>() ],
+      errorTest: [ ca<{ msg: string }>(), ca<Empty>() ],
+    },
     streamers: {
-      doBigJob(_: Empty): AsyncGenerator<string, void, unknown>
-    }
-  }
+      doBigJob: [ ca<Empty>(), ca<string>() ],
+    },
+  },
   client: {
     procs: {
-      approve(_: { question: string }): Promise<{ approved: boolean }>
-    }
-    streamers: {}
-  }
-}
-const __: RoutesConstraint = null as unknown as Routes
+      approve: [ ca<{ question: string }>(), ca<{ approved: boolean }>() ],
+    },
+    streamers: {},
+  },
+} as const
+
+/**
+ * Our server can store some context for each connection:
+ */
 type ServerContext = {
-  // ws connection is always available
-  username: string
-  userId: number
+  username?: string
+  userId?: number
 }
-var api = makeTswsServer<Routes, ServerContext>({
+
+/**
+ * Implement the server logic:
+ */
+const api = makeTswsServer(Routes, {
   procs: {
-    async square({ x }) {
+    async square({ x }, ctx) {
       return { result: x * x }
     },
-    async whoami(_, ctx) {
-      return {
-        name: ctx.username ?? throwErr('No username'),
-        userId: ctx.userId ?? throwErr('No userId'),
-      }
+    async whoami(_args, ctx) {
+      if (!ctx.username) throw new Error('No username')
+      if (!ctx.userId) throw new Error('No userId')
+      return { name: ctx.username, userId: ctx.userId }
     },
     async errorTest({ msg }) {
-      throwErr(msg)
+      throw new Error(msg)
     },
   },
   streamers: {
-    async *doBigJob(_, ctx) {
+    async *doBigJob(_args, ctx) {
       yield 'Starting...'
       await sleep()
+      // call the client’s "approve" proc
       const { approved } = await ctx.clientProcs.approve({ question: 'Continue with big job?' })
       if (!approved) {
         yield 'Cancelled by user.'
@@ -55,20 +69,17 @@ var api = makeTswsServer<Routes, ServerContext>({
     },
   },
   async onConnection(ctx) {
-    console.log('New connection:', ctx.ws)
-    if (!ctx.userId) {
-      ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
-    }
-    if (!ctx.username) {
-      ctx.username = 'Alice'
-    }
+    console.log('New connection arrived.')
+    // For demonstration, we'll assign some defaults:
+    ctx.username = 'Alice'
+    ctx.userId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
   },
+  port: 8080,
 })
-function throwErr(msg: string) {
-  throw new Error(msg)
-}
+
 function sleep(ms = 1000) {
   return new Promise(res => setTimeout(res, ms))
 }
+
 console.log('starting api')
 api.start().then(() => console.log('started!'))

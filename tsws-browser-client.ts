@@ -1,33 +1,25 @@
 // tsws-browser-client.ts
-import { RoutesConstraint } from './tsws-node-server'
+import { TswsRoutes } from './tsws-node-server'
 
-/**
- * Browser-based client with the same approach as tsws-node-client,
- * but using native `WebSocket` instead of `ws`.
- */
-type ClientProcImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
-
-type ClientStreamerImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
-
-type CallServerProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
-
-type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
-
-export type TswsBrowserClientContext<Routes extends RoutesConstraint, ClientContext> = ClientContext & {
+export type TswsBrowserClientContext<Routes extends TswsRoutes, ClientContext> = ClientContext & {
   ws: WebSocket
 }
 
-type TswsBrowserClientProcs<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['procs']]: ClientProcImpl<Routes['client']['procs'][K], TswsBrowserClientContext<Routes, ClientContext>>
-}
-type TswsBrowserClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['streamers']]: ClientStreamerImpl<
-    Routes['client']['streamers'][K],
-    TswsBrowserClientContext<Routes, ClientContext>
-  >
+export type TswsBrowserClientProcs<Routes extends TswsRoutes, ClientContext> = {
+  [K in keyof Routes['client']['procs']]: (
+    args: ReturnType<Routes['client']['procs'][K][0]>,
+    ctx: TswsBrowserClientContext<Routes, ClientContext>
+  ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
 }
 
-export interface TswsBrowserClientOpts<Routes extends RoutesConstraint, ClientContext> {
+export type TswsBrowserClientStreamers<Routes extends TswsRoutes, ClientContext> = {
+  [K in keyof Routes['client']['streamers']]: (
+    args: ReturnType<Routes['client']['streamers'][K][0]>,
+    ctx: TswsBrowserClientContext<Routes, ClientContext>
+  ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
+}
+
+export interface TswsBrowserClientOpts<Routes extends TswsRoutes, ClientContext> {
   procs: TswsBrowserClientProcs<Routes, ClientContext>
   streamers: TswsBrowserClientStreamers<Routes, ClientContext>
   url: string
@@ -35,20 +27,25 @@ export interface TswsBrowserClientOpts<Routes extends RoutesConstraint, ClientCo
   onClose?: (ctx: TswsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
 }
 
-export interface TswsBrowserClient<Routes extends RoutesConstraint, ClientContext> {
+export interface TswsBrowserClient<Routes extends TswsRoutes, ClientContext> {
   connect: () => Promise<void>
   close: () => void
   server: {
     procs: {
-      [K in keyof Routes['server']['procs']]: CallServerProc<Routes['server']['procs'][K]>
+      [K in keyof Routes['server']['procs']]: (
+        args: ReturnType<Routes['server']['procs'][K][0]>
+      ) => Promise<ReturnType<Routes['server']['procs'][K][1]>>
     }
     streamers: {
-      [K in keyof Routes['server']['streamers']]: CallServerStreamer<Routes['server']['streamers'][K]>
+      [K in keyof Routes['server']['streamers']]: (
+        args: ReturnType<Routes['server']['streamers'][K][0]>
+      ) => AsyncGenerator<ReturnType<Routes['server']['streamers'][K][1]>, void, unknown>
     }
   }
 }
 
-export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientContext = {}>(
+export function makeTswsBrowserClient<Routes extends TswsRoutes, ClientContext = {}>(
+  routes: Routes,
   opts: TswsBrowserClientOpts<Routes, ClientContext>,
 ): TswsBrowserClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
@@ -156,6 +153,25 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
   }
 
   function callRemoteProc(side: 'server' | 'client', method: string, args: any): Promise<any> {
+    let inAssert, outAssert
+    try {
+      const route = side === 'server'
+        ? routes.server.procs[method]
+        : routes.client.procs[method]
+      if (!route) throw new Error(`No ${side} proc named '${method}'`)
+      inAssert = route[0]
+      outAssert = route[1]
+    } catch (err) {
+      return Promise.reject(err)
+    }
+
+    let validatedArgs: any
+    try {
+      validatedArgs = inAssert(args)
+    } catch (err) {
+      return Promise.reject(err)
+    }
+
     const reqId = nextReqId++
     return new Promise((resolve, reject) => {
       pendingCalls.set(reqId, { resolve, reject })
@@ -164,13 +180,36 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
         side,
         reqId,
         method,
-        args,
+        args: validatedArgs,
         streaming: false,
       })
     })
   }
 
   function callRemoteStreamer(side: 'server' | 'client', method: string, args: any): AsyncGenerator<any> {
+    let inAssert, chunkAssert
+    try {
+      const route = side === 'server'
+        ? routes.server.streamers[method]
+        : routes.client.streamers[method]
+      if (!route) throw new Error(`No ${side} streamer named '${method}'`)
+      inAssert = route[0]
+      chunkAssert = route[1]
+    } catch (err) {
+      return (async function* () {
+        throw err
+      })()
+    }
+
+    let validatedArgs: any
+    try {
+      validatedArgs = inAssert(args)
+    } catch (err) {
+      return (async function* () {
+        throw err
+      })()
+    }
+
     const reqId = nextReqId++
     let pullController: ((chunk: any) => void) | null = null
     let endController: (() => void) | null = null
@@ -178,15 +217,17 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
     let ended = false
     const queue: any[] = []
 
+    // start the streaming
+    sendJson({
+      type: 'rpc',
+      side,
+      reqId,
+      method,
+      args: validatedArgs,
+      streaming: true,
+    })
+
     const gen = (async function* () {
-      sendJson({
-        type: 'rpc',
-        side,
-        reqId,
-        method,
-        args,
-        streaming: true,
-      })
       while (true) {
         if (queue.length > 0) {
           yield queue.shift()
@@ -224,8 +265,15 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
       streaming: true,
       streamController: {
         push: (chunk: any) => {
-          if (pullController) pullController(chunk)
-          else queue.push(chunk)
+          let validated
+          try {
+            validated = chunkAssert(chunk)
+          } catch (err) {
+            if (errorController) errorController(err)
+            return
+          }
+          if (pullController) pullController(validated)
+          else queue.push(validated)
         },
         end: () => {
           if (endController) endController()
@@ -249,6 +297,7 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
     }
 
     if (msg.type === 'rpc') {
+      // The server is calling the client
       const side = msg.side as 'server' | 'client'
       const reqId = msg.reqId
       const method = msg.method
@@ -256,20 +305,36 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
       const isStream = !!msg.streaming
 
       if (side === 'client') {
+        // It's a call to a client route
+        const route = isStream
+          ? routes.client.streamers[method]
+          : routes.client.procs[method]
+        if (!route) {
+          sendJson({
+            type: 'rpc-res',
+            reqId,
+            ok: false,
+            error: `No client ${isStream ? 'streamer' : 'proc'} named '${method}'`,
+          })
+          return
+        }
         if (!isStream) {
+          const [inAssert, outAssert] = route
           const fn = internalProcs[method]
           if (!fn) {
             sendJson({
               type: 'rpc-res',
               reqId,
               ok: false,
-              error: `No client proc named '${method}'`,
+              error: `Client proc '${method}' not implemented`,
             })
             return
           }
           try {
-            const result = await fn(args, clientCtx)
-            sendJson({ type: 'rpc-res', reqId, ok: true, data: result })
+            const validatedArgs = inAssert(args)
+            const result = await fn(validatedArgs, clientCtx)
+            const validatedResult = outAssert(result)
+            sendJson({ type: 'rpc-res', reqId, ok: true, data: validatedResult })
           } catch (err: any) {
             sendJson({
               type: 'rpc-res',
@@ -279,19 +344,21 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
             })
           }
         } else {
+          const [inAssert, chunkAssert] = route
           const fn = internalStreamers[method]
           if (!fn) {
             sendJson({
               type: 'rpc-res',
               reqId,
               ok: false,
-              error: `No client streamer named '${method}'`,
+              error: `Client streamer '${method}' not implemented`,
             })
             return
           }
           let gen: AsyncGenerator<any>
           try {
-            gen = fn(args, clientCtx)
+            const validatedArgs = inAssert(args)
+            gen = fn(validatedArgs, clientCtx)
           } catch (err: any) {
             sendJson({
               type: 'rpc-res',
@@ -302,20 +369,21 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
             return
           }
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
-          pushClientStream(reqId, gen).catch(err => {
+          pushClientStream(reqId, gen, chunkAssert).catch(err => {
             console.error('Browser client streamer error:', err)
           })
         }
       } else {
-        // side==='server' => got on the client => mismatch
+        // side==='server' => mismatch on the browser client
         sendJson({
           type: 'rpc-res',
           reqId,
           ok: false,
-          error: 'Got side="server" call on the browser client; ignoring.',
+          error: `Got side="server" call on the browser client; ignoring.`,
         })
       }
     } else if (msg.type === 'rpc-res') {
+      // response to a call we made
       const pc = pendingCalls.get(msg.reqId)
       if (!pc) return
       if (msg.ok) {
@@ -346,10 +414,21 @@ export function makeTswsBrowserClient<Routes extends RoutesConstraint, ClientCon
     }
   }
 
-  async function pushClientStream(reqId: number, gen: AsyncGenerator<any>) {
+  async function pushClientStream(
+    reqId: number,
+    gen: AsyncGenerator<any>,
+    chunkAssert: (chunk: unknown) => any,
+  ) {
     try {
-      for await (const chunk of gen) {
-        sendJson({ type: 'stream-chunk', reqId, chunk })
+      for await (const rawChunk of gen) {
+        let validated
+        try {
+          validated = chunkAssert(rawChunk)
+        } catch (err) {
+          sendJson({ type: 'stream-error', reqId, error: err?.message || String(err) })
+          return
+        }
+        sendJson({ type: 'stream-chunk', reqId, chunk: validated })
       }
       sendJson({ type: 'stream-end', reqId })
     } catch (err: any) {

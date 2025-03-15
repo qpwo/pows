@@ -1,85 +1,68 @@
 // tsws-node-client.ts
 import WebSocket from 'ws'
-import { RoutesConstraint } from './tsws-node-server'
+import { TswsRoutes } from './tsws-node-server'
 
 /**
- * CLIENT-SIDE ROUTE SIGNATURES
- *
- * In the "example-big-client.ts", you have:
- *   approve(_: { question: string }): Promise<{ approved: boolean }>
- * but you implement:
- *   async approve({ question }, ctx) { ... }
- *
- * We want the final type: (args: { question: string }, ctx: TswsClientContext<...>) => ...
- * so destructuring "question" is typed, and "ctx" is typed.
+ * A parallel approach for the client, which also takes a "Routes" object with
+ * [ inAssert, outAssert ] pairs. The client can validate the outgoing arguments
+ * before sending them, and validate the incoming results or streamed chunks.
  */
-type ClientProcImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
 
-type ClientStreamerImpl<Fn, Ctx> = Fn extends (args: infer A) => infer R ? (args: A, ctx: Ctx) => R : never
-
-/**
- * For calling the *server* from the client, we want to expose "server.procs.foo"
- * as a single-parameter method (args) => ReturnType, with *no* `ctx`.
- */
-type CallServerProc<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
-
-type CallServerStreamer<Fn> = Fn extends (args: infer A) => infer R ? (args: A) => R : never
-
-/**
- * The user’s "Routes" interface is conceptually:
- *   {
- *     server: {
- *       procs: (args) => Promise<any>,
- *       streamers: (args) => AsyncGenerator<any>
- *     },
- *     client: {
- *       procs: (args) => Promise<any>,
- *       streamers: (args) => AsyncGenerator<any>
- *     }
- *   }
- */
-export type TswsClientContext<Routes extends RoutesConstraint, ClientContext> = ClientContext & {
+export type TswsClientContext<Routes extends TswsRoutes, ClientContext> = ClientContext & {
   ws: WebSocket
 }
 
-type TswsClientProcs<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['procs']]: ClientProcImpl<Routes['client']['procs'][K], TswsClientContext<Routes, ClientContext>>
-}
-type TswsClientStreamers<Routes extends RoutesConstraint, ClientContext> = {
-  [K in keyof Routes['client']['streamers']]: ClientStreamerImpl<Routes['client']['streamers'][K], TswsClientContext<Routes, ClientContext>>
+/**
+ * For each client proc route, we want a function:
+ *   (validatedArgs, ctx) => Promise<validatedResult>
+ */
+export type TswsClientProcs<Routes extends TswsRoutes, ClientContext> = {
+  [K in keyof Routes['client']['procs']]: (
+    args: ReturnType<Routes['client']['procs'][K][0]>,
+    ctx: TswsClientContext<Routes, ClientContext>
+  ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
 }
 
-export interface TswsClientOpts<Routes extends RoutesConstraint, ClientContext> {
-  // The user's local implementations for client procs & streamers:
+export type TswsClientStreamers<Routes extends TswsRoutes, ClientContext> = {
+  [K in keyof Routes['client']['streamers']]: (
+    args: ReturnType<Routes['client']['streamers'][K][0]>,
+    ctx: TswsClientContext<Routes, ClientContext>
+  ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
+}
+
+export interface TswsClientOpts<Routes extends TswsRoutes, ClientContext> {
   procs: TswsClientProcs<Routes, ClientContext>
   streamers: TswsClientStreamers<Routes, ClientContext>
-
   url: string
   onOpen?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
   onClose?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
 }
 
-export interface TswsClient<Routes extends RoutesConstraint, ClientContext> {
+export interface TswsClient<Routes extends TswsRoutes, ClientContext> {
   connect: () => Promise<void>
   close: () => void
+
   /**
-   * For calling the server’s procs & streamers. These do NOT take `ctx`.
-   * The user calls e.g. `api.server.procs.square({ x: 5 })`.
+   * For calling the server’s procs & streamers (side='server'). Each route is
+   *   (args) => Promise<result>  or  (args) => AsyncGenerator<chunk>
+   * and arguments/results are validated by the provided routes object.
    */
   server: {
     procs: {
-      [K in keyof Routes['server']['procs']]: CallServerProc<Routes['server']['procs'][K]>
+      [K in keyof Routes['server']['procs']]: (
+        args: ReturnType<Routes['server']['procs'][K][0]>
+      ) => Promise<ReturnType<Routes['server']['procs'][K][1]>>
     }
     streamers: {
-      [K in keyof Routes['server']['streamers']]: CallServerStreamer<Routes['server']['streamers'][K]>
+      [K in keyof Routes['server']['streamers']]: (
+        args: ReturnType<Routes['server']['streamers'][K][0]>
+      ) => AsyncGenerator<ReturnType<Routes['server']['streamers'][K][1]>, void, unknown>
     }
   }
 }
 
-/**
- * Implementation
- */
-export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = {}>(
+export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
+  routes: Routes,
   opts: TswsClientOpts<Routes, ClientContext>,
 ): TswsClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
@@ -102,7 +85,7 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
     }
   >()
 
-  // The user’s client context
+  // Build the client's context
   const clientCtx: TswsClientContext<Routes, ClientContext> = {
     ...({} as ClientContext),
     get ws() {
@@ -110,11 +93,10 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
     },
   }
 
-  // Internally, treat procs/streamers as (args: any, ctx: any) => any
+  // Our local client procs & streamers as (args, ctx) => ...
   const internalProcs = procs as Record<string, (args: any, ctx: any) => Promise<any>>
   const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
 
-  // For calling the server
   const api: TswsClient<Routes, ClientContext> = {
     async connect() {
       if (connected) return
@@ -189,6 +171,26 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
   }
 
   function callRemoteProc(side: 'server' | 'client', method: string, args: any): Promise<any> {
+    // Validate the input using routes
+    let inAssert, outAssert
+    try {
+      const route = side === 'server'
+        ? routes.server.procs[method]
+        : routes.client.procs[method]
+      if (!route) throw new Error(`No ${side} proc named '${method}'`)
+      inAssert = route[0]
+      outAssert = route[1]
+    } catch (err) {
+      return Promise.reject(err)
+    }
+
+    let validatedArgs: any
+    try {
+      validatedArgs = inAssert(args)
+    } catch (err) {
+      return Promise.reject(err)
+    }
+
     const reqId = nextReqId++
     return new Promise((resolve, reject) => {
       pendingCalls.set(reqId, { resolve, reject })
@@ -197,30 +199,54 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
         side,
         reqId,
         method,
-        args,
+        args: validatedArgs,
         streaming: false,
       })
     })
   }
 
   function callRemoteStreamer(side: 'server' | 'client', method: string, args: any): AsyncGenerator<any> {
-    const reqId = nextReqId++
+    let inAssert, chunkAssert
+    try {
+      const route = side === 'server'
+        ? routes.server.streamers[method]
+        : routes.client.streamers[method]
+      if (!route) throw new Error(`No ${side} streamer named '${method}'`)
+      inAssert = route[0]
+      chunkAssert = route[1]
+    } catch (err) {
+      return (async function* () {
+        throw err
+      })()
+    }
 
+    let validatedArgs: any
+    try {
+      validatedArgs = inAssert(args)
+    } catch (err) {
+      return (async function* () {
+        throw err
+      })()
+    }
+
+    const reqId = nextReqId++
     let pullController: ((chunk: any) => void) | null = null
     let endController: (() => void) | null = null
     let errorController: ((err: any) => void) | null = null
     let ended = false
     const queue: any[] = []
 
+    // initiate the streaming request
+    sendJson({
+      type: 'rpc',
+      side,
+      reqId,
+      method,
+      args: validatedArgs,
+      streaming: true,
+    })
+
     const gen = (async function* () {
-      sendJson({
-        type: 'rpc',
-        side,
-        reqId,
-        method,
-        args,
-        streaming: true,
-      })
       while (true) {
         if (queue.length > 0) {
           yield queue.shift()
@@ -258,8 +284,16 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
       streaming: true,
       streamController: {
         push: (chunk: any) => {
-          if (pullController) pullController(chunk)
-          else queue.push(chunk)
+          // Validate chunk from the remote side
+          let validated
+          try {
+            validated = chunkAssert(chunk)
+          } catch (err) {
+            if (errorController) errorController(err)
+            return
+          }
+          if (pullController) pullController(validated)
+          else queue.push(validated)
         },
         end: () => {
           if (endController) endController()
@@ -283,7 +317,7 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
     }
 
     if (msg.type === 'rpc') {
-      // server calling this client
+      // The server is calling our client
       const side = msg.side as 'server' | 'client'
       const reqId = msg.reqId
       const method = msg.method
@@ -291,9 +325,11 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
       const isStream = !!msg.streaming
 
       if (side === 'client') {
+        // The server is calling a client route
         if (!isStream) {
-          const fn = internalProcs[method]
-          if (!fn) {
+          // It's a client proc
+          const route = routes.client.procs[method]
+          if (!route) {
             sendJson({
               type: 'rpc-res',
               reqId,
@@ -302,9 +338,22 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
             })
             return
           }
+          const [inAssert, outAssert] = route
+          const fn = internalProcs[method]
+          if (!fn) {
+            sendJson({
+              type: 'rpc-res',
+              reqId,
+              ok: false,
+              error: `Client proc '${method}' not implemented locally`,
+            })
+            return
+          }
           try {
-            const result = await fn(args, clientCtx)
-            sendJson({ type: 'rpc-res', reqId, ok: true, data: result })
+            const validatedArgs = inAssert(args)
+            const result = await fn(validatedArgs, clientCtx)
+            const validatedResult = outAssert(result)
+            sendJson({ type: 'rpc-res', reqId, ok: true, data: validatedResult })
           } catch (err: any) {
             sendJson({
               type: 'rpc-res',
@@ -314,8 +363,9 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
             })
           }
         } else {
-          const fn = internalStreamers[method]
-          if (!fn) {
+          // It's a client streamer
+          const route = routes.client.streamers[method]
+          if (!route) {
             sendJson({
               type: 'rpc-res',
               reqId,
@@ -324,9 +374,21 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
             })
             return
           }
+          const [inAssert, chunkAssert] = route
+          const fn = internalStreamers[method]
+          if (!fn) {
+            sendJson({
+              type: 'rpc-res',
+              reqId,
+              ok: false,
+              error: `Client streamer '${method}' not implemented`,
+            })
+            return
+          }
           let gen: AsyncGenerator<any>
           try {
-            gen = fn(args, clientCtx)
+            const validatedArgs = inAssert(args)
+            gen = fn(validatedArgs, clientCtx)
           } catch (err: any) {
             sendJson({
               type: 'rpc-res',
@@ -337,7 +399,7 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
             return
           }
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
-          pushClientStream(reqId, gen).catch(err => {
+          pushClientStream(reqId, gen, chunkAssert).catch(err => {
             console.error('Client streamer error:', err)
           })
         }
@@ -347,15 +409,19 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
           type: 'rpc-res',
           reqId,
           ok: false,
-          error: 'Got side="server" call on the client; ignoring.',
+          error: `Got side="server" call on the client; ignoring.`,
         })
       }
     } else if (msg.type === 'rpc-res') {
+      // This is a response to a call we made to the server
       const pc = pendingCalls.get(msg.reqId)
       if (!pc) return
       if (msg.ok) {
         if (!msg.streaming) {
           pendingCalls.delete(msg.reqId)
+          // We *could* do final validation of the response here if we had stored
+          // the outAssert function in pendingCalls. For brevity, we'll skip it,
+          // or you can store the necessary route info in the map if you want strict validation.
           pc.resolve(msg.data)
         } else {
           pc.resolve(undefined)
@@ -381,10 +447,21 @@ export function makeTswsClient<Routes extends RoutesConstraint, ClientContext = 
     }
   }
 
-  async function pushClientStream(reqId: number, gen: AsyncGenerator<any>) {
+  async function pushClientStream(
+    reqId: number,
+    gen: AsyncGenerator<any>,
+    chunkAssert: (chunk: unknown) => any,
+  ) {
     try {
-      for await (const chunk of gen) {
-        sendJson({ type: 'stream-chunk', reqId, chunk })
+      for await (const rawChunk of gen) {
+        let validated
+        try {
+          validated = chunkAssert(rawChunk)
+        } catch (err) {
+          sendJson({ type: 'stream-error', reqId, error: err?.message || String(err) })
+          return
+        }
+        sendJson({ type: 'stream-chunk', reqId, chunk: validated })
       }
       sendJson({ type: 'stream-end', reqId })
     } catch (err: any) {

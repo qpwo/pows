@@ -1,28 +1,36 @@
 // example-little-server.ts
-import { makeTswsServer, type RoutesConstraint } from './tsws-node-server'
+import { makeTswsServer } from './tsws-node-server'
+import { createAssert as ca } from 'typia'
 
-export interface Routes {
+/**
+ * Define a minimal "Routes" object with typia-based validation:
+ */
+export const Routes = {
   server: {
     procs: {
-      uppercase(_: { s: string }): Promise<{ result: string }>
-    }
-    streamers: {}
-  }
+      // We accept { s: string }, return { result: string }
+      uppercase: [ca<{ s: string }>(), ca<{ result: string }>()],
+    },
+    streamers: {},
+  },
   client: {
-    procs: {}
-    streamers: {}
-  }
-}
-const __: RoutesConstraint = null as unknown as Routes
+    procs: {},
+    streamers: {},
+  },
+} as const
 
-var api = makeTswsServer<Routes>({
+/**
+ * Our server implementations:
+ */
+const api = makeTswsServer(Routes, {
   procs: {
     async uppercase({ s }) {
       return { result: s.toUpperCase() }
     },
   },
   streamers: {},
-  port: 8080, // default
+  port: 8080,
 })
+
 console.log('starting api')
 api.start().then(() => console.log('started!'))

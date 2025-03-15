@@ -6,10 +6,18 @@
     "esModuleInterop": true, // allows default import from commonjs
     "skipLibCheck": true, // optional: speeds up build if you're okay skipping .d.ts checks
     "outDir": "dist", // where compiled .js files will go
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "plugins": [
+      {
+        "transform": "typia/lib/transform"
+      }
+    ],
+    "strictNullChecks": true
   },
   "include": [
     "**/*.ts" // include all .ts files in the project
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }
