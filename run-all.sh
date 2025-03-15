@@ -6,7 +6,7 @@ between() {
   # pkill -ife tsc || true
   # pkill -ife typia || true
   pkill -ife example- || true
-  # pkill -ife build.mjs || true
+  # pkill -ife run.mjs || true
   # sleep 5
 }
 

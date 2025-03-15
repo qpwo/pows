@@ -1,5 +1,20 @@
 // pows-node-server.ts
 import uWS from 'uWebSockets.js'
+import WebSocket from 'ws'
+
+export async function hasWsListener(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const ws = new WebSocket(`ws://localhost:${port}`)
+
+    ws.on('open', () => {
+      ws.close()
+      resolve(true)
+    })
+
+    ws.on('error', () => resolve(false))
+    setTimeout(() => resolve(false), 3_000)
+  })
+}
 
 /**
  * We'll define types for route definitions that rely on pairs of validation
@@ -551,7 +566,11 @@ export function makePowsServer<Routes extends PowsRoutes, ServerContext = {}>(
 
   return {
     start() {
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<void>(async (resolve, reject) => {
+        if (await hasWsListener(port)) {
+          console.error(`Port ${port} is already in use`)
+          process.exit(1)
+        }
         app.listen(port, token => {
           if (!token) {
             return reject(new Error(`Failed to listen on port ${port}`))
