@@ -12,17 +12,17 @@ import uWS from 'uWebSockets.js'
  *   const validatedArgs = routes.server.procs.square[0](argsFromClient)
  *   const validatedResult = routes.server.procs.square[1](userHandlerResult)
  */
-export type TswsRouteProc<I, O> = [
+export type TswsRouteProc<I, O> = readonly [
   /** Validation function for incoming request input */
   (input: unknown) => I,
   /** Validation function for the returned output */
-  (output: unknown) => O
+  (output: unknown) => O,
 ]
-export type TswsRouteStreamer<I, C> = [
+export type TswsRouteStreamer<I, C> = readonly [
   /** Validation function for incoming request input */
   (input: unknown) => I,
   /** Validation function for each streamed chunk */
-  (chunk: unknown) => C
+  (chunk: unknown) => C,
 ]
 
 /**
@@ -62,12 +62,12 @@ export type TswsServerContext<Routes extends TswsRoutes, ServerContext> = Server
   ws: Ws
   clientProcs: {
     [K in keyof Routes['client']['procs']]: (
-      args: ReturnType<Routes['client']['procs'][K][0]>
+      args: ReturnType<Routes['client']['procs'][K][0]>,
     ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
   }
   clientStreamers: {
     [K in keyof Routes['client']['streamers']]: (
-      args: ReturnType<Routes['client']['streamers'][K][0]>
+      args: ReturnType<Routes['client']['streamers'][K][0]>,
     ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
   }
 }
@@ -79,14 +79,14 @@ export type TswsServerContext<Routes extends TswsRoutes, ServerContext> = Server
 export type TswsServerProcs<Routes extends TswsRoutes, ServerContext> = {
   [K in keyof Routes['server']['procs']]: (
     args: ReturnType<Routes['server']['procs'][K][0]>,
-    ctx: TswsServerContext<Routes, ServerContext>
+    ctx: TswsServerContext<Routes, ServerContext>,
   ) => Promise<ReturnType<Routes['server']['procs'][K][1]>>
 }
 
 export type TswsServerStreamers<Routes extends TswsRoutes, ServerContext> = {
   [K in keyof Routes['server']['streamers']]: (
     args: ReturnType<Routes['server']['streamers'][K][0]>,
-    ctx: TswsServerContext<Routes, ServerContext>
+    ctx: TswsServerContext<Routes, ServerContext>,
   ) => AsyncGenerator<ReturnType<Routes['server']['streamers'][K][1]>, void, unknown>
 }
 
@@ -222,9 +222,7 @@ export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
     // Validate input before sending, using the route definitions we hold:
     let inAssert, outAssert
     try {
-      const route = side === 'server'
-        ? routes.server.procs[method]
-        : routes.client.procs[method]
+      const route = side === 'server' ? routes.server.procs[method] : routes.client.procs[method]
       if (!route) throw new Error(`No ${side} proc named '${method}'`)
       inAssert = route[0]
       outAssert = route[1]
@@ -258,9 +256,7 @@ export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
     // Validate input before sending
     let inAssert, chunkAssert
     try {
-      const route = side === 'server'
-        ? routes.server.streamers[method]
-        : routes.client.streamers[method]
+      const route = side === 'server' ? routes.server.streamers[method] : routes.client.streamers[method]
       if (!route) throw new Error(`No ${side} streamer named '${method}'`)
       inAssert = route[0]
       chunkAssert = route[1]
@@ -524,12 +520,7 @@ export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
    * pushServerStream yields chunks to the client, validating each chunk
    * via the chunkAssert function, then sending them over the wire.
    */
-  async function pushServerStream(
-    ws: Ws,
-    reqId: number,
-    gen: AsyncGenerator<any>,
-    chunkAssert: (chunk: unknown) => any,
-  ) {
+  async function pushServerStream(ws: Ws, reqId: number, gen: AsyncGenerator<any>, chunkAssert: (chunk: unknown) => any) {
     const data = wsData(ws)
     try {
       for await (const rawChunk of gen) {
@@ -537,7 +528,8 @@ export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
         let validatedChunk
         try {
           validatedChunk = chunkAssert(rawChunk)
-        } catch (err) {
+        } catch (e) {
+          const err = e as Error
           // Send stream-error and stop
           sendJson(ws, { type: 'stream-error', reqId, error: err?.message || String(err) })
           return

@@ -19,14 +19,14 @@ export type TswsClientContext<Routes extends TswsRoutes, ClientContext> = Client
 export type TswsClientProcs<Routes extends TswsRoutes, ClientContext> = {
   [K in keyof Routes['client']['procs']]: (
     args: ReturnType<Routes['client']['procs'][K][0]>,
-    ctx: TswsClientContext<Routes, ClientContext>
+    ctx: TswsClientContext<Routes, ClientContext>,
   ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
 }
 
 export type TswsClientStreamers<Routes extends TswsRoutes, ClientContext> = {
   [K in keyof Routes['client']['streamers']]: (
     args: ReturnType<Routes['client']['streamers'][K][0]>,
-    ctx: TswsClientContext<Routes, ClientContext>
+    ctx: TswsClientContext<Routes, ClientContext>,
   ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
 }
 
@@ -50,12 +50,12 @@ export interface TswsClient<Routes extends TswsRoutes, ClientContext> {
   server: {
     procs: {
       [K in keyof Routes['server']['procs']]: (
-        args: ReturnType<Routes['server']['procs'][K][0]>
+        args: ReturnType<Routes['server']['procs'][K][0]>,
       ) => Promise<ReturnType<Routes['server']['procs'][K][1]>>
     }
     streamers: {
       [K in keyof Routes['server']['streamers']]: (
-        args: ReturnType<Routes['server']['streamers'][K][0]>
+        args: ReturnType<Routes['server']['streamers'][K][0]>,
       ) => AsyncGenerator<ReturnType<Routes['server']['streamers'][K][1]>, void, unknown>
     }
   }
@@ -174,9 +174,7 @@ export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
     // Validate the input using routes
     let inAssert, outAssert
     try {
-      const route = side === 'server'
-        ? routes.server.procs[method]
-        : routes.client.procs[method]
+      const route = side === 'server' ? routes.server.procs[method] : routes.client.procs[method]
       if (!route) throw new Error(`No ${side} proc named '${method}'`)
       inAssert = route[0]
       outAssert = route[1]
@@ -208,9 +206,7 @@ export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
   function callRemoteStreamer(side: 'server' | 'client', method: string, args: any): AsyncGenerator<any> {
     let inAssert, chunkAssert
     try {
-      const route = side === 'server'
-        ? routes.server.streamers[method]
-        : routes.client.streamers[method]
+      const route = side === 'server' ? routes.server.streamers[method] : routes.client.streamers[method]
       if (!route) throw new Error(`No ${side} streamer named '${method}'`)
       inAssert = route[0]
       chunkAssert = route[1]
@@ -447,17 +443,14 @@ export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
     }
   }
 
-  async function pushClientStream(
-    reqId: number,
-    gen: AsyncGenerator<any>,
-    chunkAssert: (chunk: unknown) => any,
-  ) {
+  async function pushClientStream(reqId: number, gen: AsyncGenerator<any>, chunkAssert: (chunk: unknown) => any) {
     try {
       for await (const rawChunk of gen) {
         let validated
         try {
           validated = chunkAssert(rawChunk)
-        } catch (err) {
+        } catch (e) {
+          const err = e as Error
           sendJson({ type: 'stream-error', reqId, error: err?.message || String(err) })
           return
         }

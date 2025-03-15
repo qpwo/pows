@@ -12,17 +12,17 @@ type Empty = Record<string, never>
 export const Routes = {
   server: {
     procs: {
-      square: [ ca<{ x: number }>(), ca<{ result: number }>() ],
-      whoami: [ ca<Empty>(), ca<{ name: string; userId: number }>() ],
-      errorTest: [ ca<{ msg: string }>(), ca<Empty>() ],
+      square: [ca<{ x: number }>(), ca<{ result: number }>()],
+      whoami: [ca<Empty>(), ca<{ name: string; userId: number }>()],
+      errorTest: [ca<{ msg: string }>(), ca<Empty>()],
     },
     streamers: {
-      doBigJob: [ ca<Empty>(), ca<string>() ],
+      doBigJob: [ca<Empty>(), ca<string>()],
     },
   },
   client: {
     procs: {
-      approve: [ ca<{ question: string }>(), ca<{ approved: boolean }>() ],
+      approve: [ca<{ question: string }>(), ca<{ approved: boolean }>()],
     },
     streamers: {},
   },
@@ -39,7 +39,7 @@ type ServerContext = {
 /**
  * Implement the server logic:
  */
-const api = makeTswsServer(Routes, {
+const api = makeTswsServer<typeof Routes, ServerContext>(Routes, {
   procs: {
     async square({ x }, ctx) {
       return { result: x * x }

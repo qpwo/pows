@@ -1,49 +1,67 @@
 // example-load-server.ts
-import { makeTswsServer, type RoutesConstraint } from './tsws-node-server'
+import { makeTswsServer } from './tsws-node-server'
+import { createAssert as ca } from 'typia'
 
-// We define our Routes interface with:
-// - 2 "normal" server procs (addOne, double)
-// - 2 "normal" server streamers (countUp, randomNumbers)
-// - 2 client procs (clientProcA, clientProcB)
-// - 2 client streamers (clientStreamerX, clientStreamerY)
-// - 4 additional server endpoints that invoke each of the 4 client things:
-//   callClientProcA, callClientProcB, callClientStreamerX, callClientStreamerY
-export interface Routes {
+/**
+ * We define a single "Routes" object, describing both server and client routes.
+ * Each route is a tuple [ inputAssert, outputAssert ] for procs,
+ * or [ inputAssert, chunkAssert ] for streamers.
+ */
+export const Routes = {
   server: {
     procs: {
-      addOne(args: { value: number }): Promise<{ result: number }>
-      double(args: { value: number }): Promise<{ result: number }>
+      // addOne({ value: number }): Promise<{ result: number }>
+      addOne: [ca<{ value: number }>(), ca<{ result: number }>()],
 
-      callClientProcA(args: {}): Promise<{ fromClient: any }>
-      callClientProcB(args: {}): Promise<{ fromClient: any }>
-    }
+      // double({ value: number }): Promise<{ result: number }>
+      double: [ca<{ value: number }>(), ca<{ result: number }>()],
+
+      // callClientProcA({}): Promise<{ fromClient: any }>
+      callClientProcA: [ca<{}>(), ca<{ fromClient: any }>()],
+
+      // callClientProcB({}): Promise<{ fromClient: any }>
+      callClientProcB: [ca<{}>(), ca<{ fromClient: any }>()],
+    },
     streamers: {
-      countUp(args: { start: number; end: number }): AsyncGenerator<number, void, unknown>
-      randomNumbers(args: { count: number }): AsyncGenerator<number, void, unknown>
+      // countUp({ start: number; end: number }): yields number
+      countUp: [ca<{ start: number; end: number }>(), ca<number>()],
 
-      callClientStreamerX(args: {}): AsyncGenerator<any, void, unknown>
-      callClientStreamerY(args: {}): AsyncGenerator<any, void, unknown>
-    }
-  }
+      // randomNumbers({ count: number }): yields number
+      randomNumbers: [ca<{ count: number }>(), ca<number>()],
+
+      // callClientStreamerX({}): yields any
+      callClientStreamerX: [ca<{}>(), ca<any>()],
+
+      // callClientStreamerY({}): yields any
+      callClientStreamerY: [ca<{}>(), ca<any>()],
+    },
+  },
   client: {
     procs: {
-      clientProcA(args: { ping: string }): Promise<{ pong: string }>
-      clientProcB(args: { question: string }): Promise<{ answer: string }>
-    }
+      // clientProcA({ ping: string }): Promise<{ pong: string }>
+      clientProcA: [ca<{ ping: string }>(), ca<{ pong: string }>()],
+
+      // clientProcB({ question: string }): Promise<{ answer: string }>
+      clientProcB: [ca<{ question: string }>(), ca<{ answer: string }>()],
+    },
     streamers: {
-      clientStreamerX(args: { hello: string }): AsyncGenerator<string, void, unknown>
-      clientStreamerY(args: { data: number[] }): AsyncGenerator<number, void, unknown>
-    }
-  }
-}
+      // clientStreamerX({ hello: string }): yields string
+      clientStreamerX: [ca<{ hello: string }>(), ca<string>()],
 
-const __: RoutesConstraint = null as unknown as Routes
+      // clientStreamerY({ data: number[] }): yields number
+      clientStreamerY: [ca<{ data: number[] }>(), ca<number>()],
+    },
+  },
+} as const
 
+/**
+ * If you want a custom server context, declare here.
+ */
 type ServerCtx = {
-  // Additional context fields if needed
+  // Additional fields if needed
 }
 
-const api = makeTswsServer<Routes, ServerCtx>({
+const api = makeTswsServer(Routes, {
   procs: {
     async addOne({ value }) {
       return { result: value + 1 }
@@ -62,6 +80,7 @@ const api = makeTswsServer<Routes, ServerCtx>({
       return { fromClient }
     },
   },
+
   streamers: {
     async *countUp({ start, end }) {
       // Yield integers from start to end, no sleep
@@ -70,7 +89,7 @@ const api = makeTswsServer<Routes, ServerCtx>({
       }
     },
     async *randomNumbers({ count }) {
-      // Yield 'count' random numbers, no sleep
+      // Yield 'count' random numbers
       for (let i = 0; i < count; i++) {
         yield Math.random()
       }
@@ -90,6 +109,7 @@ const api = makeTswsServer<Routes, ServerCtx>({
       }
     },
   },
+
   port: 8080,
   onConnection() {
     console.log('New connection established on server.')

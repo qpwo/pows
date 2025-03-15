@@ -1,6 +1,6 @@
 // example-load-client.ts
 import { makeTswsClient } from './tsws-node-client'
-import type { Routes } from './example-load-server'
+import { Routes } from './example-load-server' // We import the same Routes object
 
 type ClientCtx = {}
 
@@ -12,8 +12,12 @@ const chunkCounters: Record<string, number> = {}
 // We'll identify which labels are streamers.
 const streamerLabels = new Set(['countUp', 'randomNumbers', 'callClientStreamerX', 'callClientStreamerY'])
 
-// Create the client, with no logs in procs/streamers themselves:
-const api = makeTswsClient<Routes, ClientCtx>({
+/**
+ * Create the client, providing local (client) procs and streamers,
+ * plus the route definitions from the server. "procs" and "streamers"
+ * here implement the callbacks the server might call, i.e. "clientProcA", etc.
+ */
+const api = makeTswsClient(Routes, {
   procs: {
     async clientProcA({ ping }) {
       return { pong: `${ping} -> clientProcA says hi!` }
