@@ -4,6 +4,7 @@
   "description": "Type-safe bidirectional RPC and streaming over WebSockets for Node.js and browsers",
   "main": "index.js",
   "types": "index.d.ts",
+  "repository": "https://github.com/qpwo/pows",
   "exports": {
     ".": {
       "require": "./index.js",
