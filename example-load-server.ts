@@ -96,7 +96,7 @@ const api = makePowsServer<typeof Routes3, ServerCtx>(Routes3, {
   },
 })
 
-if (require.main === module) {
+if (process.argv.at(-1)?.split('.')?.at(-2)?.endsWith('server')) {
   console.log('Starting load server on port 8080...')
   api.start().then(() => {
     console.log('Load server started!')

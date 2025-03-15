@@ -84,7 +84,7 @@ function sleep(ms = 1000) {
 /**
  * Only start the server if this file is run directly.
  */
-if (require.main === module) {
+if (process.argv.at(-1)?.split('.')?.at(-2)?.endsWith('server')) {
   console.log('starting api')
   api.start().then(() => console.log('started!'))
 }

@@ -35,7 +35,7 @@ const api = makePowsServer(Routes, {
 /**
  * Only start the server if this file is run directly (e.g. `node dist/example-little-server.js`).
  */
-if (require.main === module) {
+if (process.argv.at(-1)?.split('.')?.at(-2)?.endsWith('server')) {
   console.log('starting api')
   api.start().then(() => console.log('started!'))
 }
