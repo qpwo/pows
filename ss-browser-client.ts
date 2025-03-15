@@ -1,33 +1,33 @@
-// tsws-browser-client.ts
-import { TswsRoutes } from './tsws-node-server'
+// ss-browser-client.ts
+import { SsRoutes } from './ss-node-server'
 
-export type TswsBrowserClientContext<Routes extends TswsRoutes, ClientContext> = ClientContext & {
+export type SsBrowserClientContext<Routes extends SsRoutes, ClientContext> = ClientContext & {
   ws: WebSocket
 }
 
-export type TswsBrowserClientProcs<Routes extends TswsRoutes, ClientContext> = {
+export type SsBrowserClientProcs<Routes extends SsRoutes, ClientContext> = {
   [K in keyof Routes['client']['procs']]: (
     args: ReturnType<Routes['client']['procs'][K][0]>,
-    ctx: TswsBrowserClientContext<Routes, ClientContext>,
+    ctx: SsBrowserClientContext<Routes, ClientContext>,
   ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
 }
 
-export type TswsBrowserClientStreamers<Routes extends TswsRoutes, ClientContext> = {
+export type SsBrowserClientStreamers<Routes extends SsRoutes, ClientContext> = {
   [K in keyof Routes['client']['streamers']]: (
     args: ReturnType<Routes['client']['streamers'][K][0]>,
-    ctx: TswsBrowserClientContext<Routes, ClientContext>,
+    ctx: SsBrowserClientContext<Routes, ClientContext>,
   ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
 }
 
-export interface TswsBrowserClientOpts<Routes extends TswsRoutes, ClientContext> {
-  procs: TswsBrowserClientProcs<Routes, ClientContext>
-  streamers: TswsBrowserClientStreamers<Routes, ClientContext>
+export interface SsBrowserClientOpts<Routes extends SsRoutes, ClientContext> {
+  procs: SsBrowserClientProcs<Routes, ClientContext>
+  streamers: SsBrowserClientStreamers<Routes, ClientContext>
   url: string
-  onOpen?: (ctx: TswsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
-  onClose?: (ctx: TswsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
+  onOpen?: (ctx: SsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
+  onClose?: (ctx: SsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
 }
 
-export interface TswsBrowserClient<Routes extends TswsRoutes, ClientContext> {
+export interface SsBrowserClient<Routes extends SsRoutes, ClientContext> {
   connect: () => Promise<void>
   close: () => void
   server: {
@@ -44,10 +44,10 @@ export interface TswsBrowserClient<Routes extends TswsRoutes, ClientContext> {
   }
 }
 
-export function makeTswsBrowserClient<Routes extends TswsRoutes, ClientContext = {}>(
+export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>(
   routes: Routes,
-  opts: TswsBrowserClientOpts<Routes, ClientContext>,
-): TswsBrowserClient<Routes, ClientContext> {
+  opts: SsBrowserClientOpts<Routes, ClientContext>,
+): SsBrowserClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
@@ -68,7 +68,7 @@ export function makeTswsBrowserClient<Routes extends TswsRoutes, ClientContext =
     }
   >()
 
-  const clientCtx: TswsBrowserClientContext<Routes, ClientContext> = {
+  const clientCtx: SsBrowserClientContext<Routes, ClientContext> = {
     ...({} as ClientContext),
     get ws() {
       return ws!
@@ -78,7 +78,7 @@ export function makeTswsBrowserClient<Routes extends TswsRoutes, ClientContext =
   const internalProcs = procs as Record<string, (args: any, ctx: any) => Promise<any>>
   const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
 
-  const api: TswsBrowserClient<Routes, ClientContext> = {
+  const api: SsBrowserClient<Routes, ClientContext> = {
     async connect() {
       if (connected) return
       await new Promise<void>((resolve, reject) => {

@@ -1,5 +1,5 @@
 // example-big-server.ts
-import { makeTswsServer } from './tsws-node-server'
+import { makeSsServer } from './ss-node-server'
 import { createAssert as ca } from 'typia'
 
 type Empty = Record<string, never>
@@ -39,7 +39,7 @@ type ServerContext = {
 /**
  * Implement the server logic:
  */
-const api = makeTswsServer<typeof Routes, ServerContext>(Routes, {
+const api = makeSsServer<typeof Routes, ServerContext>(Routes, {
   procs: {
     async square({ x }, ctx) {
       return { result: x * x }

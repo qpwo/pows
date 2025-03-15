@@ -1,9 +1,9 @@
 // example-big-client.ts
-import { makeTswsClient } from './tsws-node-client'
+import { makeSsClient } from './ss-node-client'
 import { Routes } from './example-big-server'
 
 async function main() {
-  const api = makeTswsClient(Routes, {
+  const api = makeSsClient(Routes, {
     procs: {
       // Implementation of the client's "approve" callback
       async approve({ question }, ctx) {
