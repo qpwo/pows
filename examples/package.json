@@ -15,6 +15,7 @@
     "typescript": "^5.8.2"
   },
   "scripts": {
-    "prepare": "ts-patch install"
+    "prepare": "ts-patch install",
+    "typia-setup": "pnpm typia setup --manager pnpm"
   }
 }
