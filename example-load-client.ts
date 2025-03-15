@@ -151,9 +151,12 @@ async function main() {
 
     const totalRate = totalCalls / totalTimeSec
     const totalChunkRate = totalChunks / totalTimeSec
+    const totalTrips = totalCalls + totalChunks
+    const totalTripRate = totalTrips / totalTimeSec
     console.log(
-      `Total calls: ${totalCalls}, total rate: ${totalRate.toFixed(2)}/s, ` +
-        `total chunks: ${totalChunks}, total chunk rate: ${totalChunkRate.toFixed(2)}/s`,
+      // `Total calls: ${totalCalls}, total rate: ${totalRate.toFixed(2)}/s, ` +
+      // `total chunks: ${totalChunks}, total chunk rate: ${totalChunkRate.toFixed(2)}/s`,
+      `total trips: ${totalTrips}, total trip rate: ${totalTripRate.toFixed(2)}/s`,
     )
     process.exit(0)
   }, 10_000)
@@ -164,12 +167,18 @@ async function main() {
  * If any call throws, we stop (quietly).
  */
 async function loopCaller(label: string, fn: () => Promise<void>) {
+  let errored = false
   while (true) {
     try {
       await fn()
       counters[label]++
-    } catch {
-      break
+    } catch (e) {
+      if (!errored) {
+        console.error(`Error in ${label}:`, e)
+      }
+      else {
+        process.stdout.write('(e)')
+      }
     }
   }
 }

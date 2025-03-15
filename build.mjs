@@ -14,7 +14,9 @@ const outputFile = 'dist/' + inputFile.replace('.ts', '.js')
 build({
   entryPoints: [inputFile],
   outfile: outputFile,
-  plugins: [UnpluginTypia({})],
+  plugins: [UnpluginTypia({
+    cache: true,
+  })],
   platform: 'node',
   bundle: true,
   target: 'node16',
