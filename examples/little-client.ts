@@ -1,6 +1,6 @@
-// example-little-client.ts
-import { makeSsClient } from './ss-node-client'
-import { Routes } from './example-little-server' // same Routes object
+// little-client.ts
+import { makeSsClient } from 'supersock/node-client'
+import { Routes } from './little-server' // same Routes object
 
 async function main() {
   const api = makeSsClient(Routes, {

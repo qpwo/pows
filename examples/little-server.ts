@@ -1,5 +1,5 @@
-// example-little-server.ts
-import { makeSsServer } from './ss-node-server'
+// little-server.ts
+import { makeSsServer } from 'supersock/node-server'
 import { createAssert as ca } from 'typia'
 
 /**

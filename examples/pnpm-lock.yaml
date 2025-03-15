@@ -7,7 +7,7 @@ settings:
 importers:
 
   .:
-    devDependencies:
+    dependencies:
       '@ryoppippi/unplugin-typia':
         specifier: ^2.0.3
         version: 2.0.3(typescript@5.8.2)(typia@8.0.2(@samchon/openapi@3.0.0)(typescript@5.8.2))
@@ -20,6 +20,9 @@ importers:
       esbuild:
         specifier: ^0.25.1
         version: 0.25.1
+      supersock:
+        specifier: link:..
+        version: link:..
       ts-patch:
         specifier: ^3.3.0
         version: 3.3.0
@@ -30,7 +33,7 @@ importers:
         specifier: ^8.0.2
         version: 8.0.2(@samchon/openapi@3.0.0)(typescript@5.8.2)
       uWebSockets.js:
-        specifier: github:uNetworking/uWebSockets.js#v20.51.0
+        specifier: latest
         version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/6609a88ffa9a16ac5158046761356ce03250a0df
       ws:
         specifier: ^8.18.1

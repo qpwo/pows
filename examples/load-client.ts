@@ -1,6 +1,6 @@
-// example-load-client.ts
-import { makeSsClient } from './ss-node-client'
-import { Routes } from './example-load-server' // We import the same Routes object
+// load-client.ts
+import { makeSsClient } from 'supersock/node-client'
+import { Routes } from './load-server' // We import the same Routes object
 
 type ClientCtx = {}
 

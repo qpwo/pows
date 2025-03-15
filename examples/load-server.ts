@@ -1,5 +1,5 @@
-// example-load-server.ts
-import { makeSsServer } from './ss-node-server'
+// load-server.ts
+import { makeSsServer } from 'supersock/node-server'
 import { createAssert as ca } from 'typia'
 
 /**

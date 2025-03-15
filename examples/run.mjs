@@ -27,7 +27,7 @@ build({
   minify: true,
   target: 'node16',
   format: 'cjs',
-  external: ['uWebSockets.js'],
+  external: ['uWebSockets.js', 'ws'],
 })
   .then(() => {
     console.log(`Compiled ${inputFile} to ${outputFile}`)

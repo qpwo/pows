@@ -1,5 +1,5 @@
-// example-big-server.ts
-import { makeSsServer } from './ss-node-server'
+// big-server.ts
+import { makeSsServer } from 'supersock/node-server'
 import { createAssert as ca } from 'typia'
 
 type Empty = Record<string, never>

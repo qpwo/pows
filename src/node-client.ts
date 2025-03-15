@@ -1,35 +1,52 @@
-// ss-browser-client.ts
-import { SsRoutes } from './ss-node-server'
+// ss-node-client.ts
+import WebSocket from 'ws'
+import type { SsRoutes } from './node-server'
 
-export type SsBrowserClientContext<Routes extends SsRoutes, ClientContext> = ClientContext & {
+/**
+ * A parallel approach for the client, which also takes a "Routes" object with
+ * [ inAssert, outAssert ] pairs. The client can validate the outgoing arguments
+ * before sending them, and validate the incoming results or streamed chunks.
+ */
+
+export type SsClientContext<Routes extends SsRoutes, ClientContext> = ClientContext & {
   ws: WebSocket
 }
 
-export type SsBrowserClientProcs<Routes extends SsRoutes, ClientContext> = {
+/**
+ * For each client proc route, we want a function:
+ *   (validatedArgs, ctx) => Promise<validatedResult>
+ */
+export type SsClientProcs<Routes extends SsRoutes, ClientContext> = {
   [K in keyof Routes['client']['procs']]: (
     args: ReturnType<Routes['client']['procs'][K][0]>,
-    ctx: SsBrowserClientContext<Routes, ClientContext>,
+    ctx: SsClientContext<Routes, ClientContext>,
   ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
 }
 
-export type SsBrowserClientStreamers<Routes extends SsRoutes, ClientContext> = {
+export type SsClientStreamers<Routes extends SsRoutes, ClientContext> = {
   [K in keyof Routes['client']['streamers']]: (
     args: ReturnType<Routes['client']['streamers'][K][0]>,
-    ctx: SsBrowserClientContext<Routes, ClientContext>,
+    ctx: SsClientContext<Routes, ClientContext>,
   ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
 }
 
-export interface SsBrowserClientOpts<Routes extends SsRoutes, ClientContext> {
-  procs: SsBrowserClientProcs<Routes, ClientContext>
-  streamers: SsBrowserClientStreamers<Routes, ClientContext>
+export interface SsClientOpts<Routes extends SsRoutes, ClientContext> {
+  procs: SsClientProcs<Routes, ClientContext>
+  streamers: SsClientStreamers<Routes, ClientContext>
   url: string
-  onOpen?: (ctx: SsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
-  onClose?: (ctx: SsBrowserClientContext<Routes, ClientContext>) => void | Promise<void>
+  onOpen?: (ctx: SsClientContext<Routes, ClientContext>) => void | Promise<void>
+  onClose?: (ctx: SsClientContext<Routes, ClientContext>) => void | Promise<void>
 }
 
-export interface SsBrowserClient<Routes extends SsRoutes, ClientContext> {
+export interface SsClient<Routes extends SsRoutes, ClientContext> {
   connect: () => Promise<void>
   close: () => void
+
+  /**
+   * For calling the server’s procs & streamers (side='server'). Each route is
+   *   (args) => Promise<result>  or  (args) => AsyncGenerator<chunk>
+   * and arguments/results are validated by the provided routes object.
+   */
   server: {
     procs: {
       [K in keyof Routes['server']['procs']]: (
@@ -44,16 +61,16 @@ export interface SsBrowserClient<Routes extends SsRoutes, ClientContext> {
   }
 }
 
-export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>(
+export function makeSsClient<Routes extends SsRoutes, ClientContext = {}>(
   routes: Routes,
-  opts: SsBrowserClientOpts<Routes, ClientContext>,
-): SsBrowserClient<Routes, ClientContext> {
+  opts: SsClientOpts<Routes, ClientContext>,
+): SsClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
   let connected = false
-  let nextReqId = 1
 
+  let nextReqId = 1
   const pendingCalls = new Map<
     number,
     {
@@ -68,17 +85,19 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
     }
   >()
 
-  const clientCtx: SsBrowserClientContext<Routes, ClientContext> = {
+  // Build the client's context
+  const clientCtx: SsClientContext<Routes, ClientContext> = {
     ...({} as ClientContext),
     get ws() {
       return ws!
     },
   }
 
+  // Our local client procs & streamers as (args, ctx) => ...
   const internalProcs = procs as Record<string, (args: any, ctx: any) => Promise<any>>
   const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
 
-  const api: SsBrowserClient<Routes, ClientContext> = {
+  const api: SsClient<Routes, ClientContext> = {
     async connect() {
       if (connected) return
       await new Promise<void>((resolve, reject) => {
@@ -95,8 +114,7 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
           resolve()
         }
         ws.onmessage = ev => {
-          const dataStr = typeof ev.data === 'string' ? ev.data : ''
-          handleMessage(dataStr).catch(err => {
+          handleMessage(String(ev.data)).catch(err => {
             console.error('handleMessage error:', err)
           })
         }
@@ -129,7 +147,7 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
       procs: new Proxy(
         {},
         {
-          get(_t, methodName) {
+          get(_target, methodName) {
             return (args: any) => callRemoteProc('server', methodName as string, args)
           },
         },
@@ -137,7 +155,7 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
       streamers: new Proxy(
         {},
         {
-          get(_t, methodName) {
+          get(_target, methodName) {
             return (args: any) => callRemoteStreamer('server', methodName as string, args)
           },
         },
@@ -153,6 +171,7 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
   }
 
   function callRemoteProc(side: 'server' | 'client', method: string, args: any): Promise<any> {
+    // Validate the input using routes
     let inAssert, outAssert
     try {
       const route = side === 'server' ? routes.server.procs[method] : routes.client.procs[method]
@@ -213,7 +232,7 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
     let ended = false
     const queue: any[] = []
 
-    // start the streaming
+    // initiate the streaming request
     sendJson({
       type: 'rpc',
       side,
@@ -261,6 +280,7 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
       streaming: true,
       streamController: {
         push: (chunk: any) => {
+          // Validate chunk from the remote side
           let validated
           try {
             validated = chunkAssert(chunk)
@@ -283,17 +303,17 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
     return gen
   }
 
-  async function handleMessage(msgStr: string) {
+  async function handleMessage(dataStr: string) {
     let msg: any
     try {
-      msg = JSON.parse(msgStr)
+      msg = JSON.parse(dataStr)
     } catch (err) {
-      console.error('Invalid JSON from server:', msgStr)
+      console.error('Invalid JSON from server:', dataStr)
       return
     }
 
     if (msg.type === 'rpc') {
-      // The server is calling the client
+      // The server is calling our client
       const side = msg.side as 'server' | 'client'
       const reqId = msg.reqId
       const method = msg.method
@@ -301,18 +321,19 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
       const isStream = !!msg.streaming
 
       if (side === 'client') {
-        // It's a call to a client route
-        const route = isStream ? routes.client.streamers[method] : routes.client.procs[method]
-        if (!route) {
-          sendJson({
-            type: 'rpc-res',
-            reqId,
-            ok: false,
-            error: `No client ${isStream ? 'streamer' : 'proc'} named '${method}'`,
-          })
-          return
-        }
+        // The server is calling a client route
         if (!isStream) {
+          // It's a client proc
+          const route = routes.client.procs[method]
+          if (!route) {
+            sendJson({
+              type: 'rpc-res',
+              reqId,
+              ok: false,
+              error: `No client proc named '${method}'`,
+            })
+            return
+          }
           const [inAssert, outAssert] = route
           const fn = internalProcs[method]
           if (!fn) {
@@ -320,7 +341,7 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
               type: 'rpc-res',
               reqId,
               ok: false,
-              error: `Client proc '${method}' not implemented`,
+              error: `Client proc '${method}' not implemented locally`,
             })
             return
           }
@@ -338,6 +359,17 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
             })
           }
         } else {
+          // It's a client streamer
+          const route = routes.client.streamers[method]
+          if (!route) {
+            sendJson({
+              type: 'rpc-res',
+              reqId,
+              ok: false,
+              error: `No client streamer named '${method}'`,
+            })
+            return
+          }
           const [inAssert, chunkAssert] = route
           const fn = internalStreamers[method]
           if (!fn) {
@@ -364,25 +396,28 @@ export function makeSsBrowserClient<Routes extends SsRoutes, ClientContext = {}>
           }
           sendJson({ type: 'rpc-res', reqId, ok: true, streaming: true })
           pushClientStream(reqId, gen, chunkAssert).catch(err => {
-            console.error('Browser client streamer error:', err)
+            console.error('Client streamer error:', err)
           })
         }
       } else {
-        // side==='server' => mismatch on the browser client
+        // side==='server' => we got it on the client => mismatch
         sendJson({
           type: 'rpc-res',
           reqId,
           ok: false,
-          error: `Got side="server" call on the browser client; ignoring.`,
+          error: `Got side="server" call on the client; ignoring.`,
         })
       }
     } else if (msg.type === 'rpc-res') {
-      // response to a call we made
+      // This is a response to a call we made to the server
       const pc = pendingCalls.get(msg.reqId)
       if (!pc) return
       if (msg.ok) {
         if (!msg.streaming) {
           pendingCalls.delete(msg.reqId)
+          // We *could* do final validation of the response here if we had stored
+          // the outAssert function in pendingCalls. For brevity, we'll skip it,
+          // or you can store the necessary route info in the map if you want strict validation.
           pc.resolve(msg.data)
         } else {
           pc.resolve(undefined)

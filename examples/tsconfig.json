@@ -16,7 +16,7 @@
     "strictNullChecks": true
   },
   "include": [
-    "src/**/*.ts" // include all .ts files in the project
+    "*.ts" // include all .ts files in the project
   ],
   "exclude": ["node_modules"]
 }
