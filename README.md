@@ -12,11 +12,11 @@ Type-safe bidirectional RPC and streaming over WebSockets for Node.js and browse
 
 ```sh
 # Node server:
-npm i supersock uNetworking/uWebSockets.js#v20.51.0
+npm i supersock typia uNetworking/uWebSockets.js#v20.51.0
 # Node client:
-npm i supersock ws @types/ws
+npm i supersock typia ws @types/ws
 # Browser client:
-npm i supersock
+npm i supersock typia
 # Everything:
-npm i supersock ws @types/ws uNetworking/uWebSockets.js#v20.51.0
+npm i supersock typia ws @types/ws uNetworking/uWebSockets.js#v20.51.0
 ```

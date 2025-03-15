@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "es2020", // or a suitable modern target
-    "module": "commonjs", // typical for Node.js
+    "module": "Node16", // typical for Node.js
+    "moduleResolution": "node16",
     "strict": true, // enable strict type-checking
     "esModuleInterop": true, // allows default import from commonjs
     "skipLibCheck": true, // optional: speeds up build if you're okay skipping .d.ts checks
