@@ -10,7 +10,7 @@ Messages only have to travel one way! Websockets have gotten so damn good.
 - Uses the fastest websocket library (`uwebsockets.js`)
 - Uses the fastest type validator (`typia`)
 - 100% end-to-end type inference and validation
-- Load test shows streaming 30k requests bidirectionally
+- Load test shows streaming 30k requests/sec bidirectionally
 
 ## Installation
 
