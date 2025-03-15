@@ -13,6 +13,7 @@
   },
   "scripts": {
     "prepare": "ts-patch install",
+    "start": "bash run-all.sh",
     "little-server": "./run.mjs little-server.ts",
     "little-client": "./run.mjs little-client.ts",
     "big-server": "./run.mjs big-server.ts",

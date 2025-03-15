@@ -32,5 +32,7 @@ const api = makeSsServer(Routes, {
   port: 8080,
 })
 
-console.log('starting api')
-api.start().then(() => console.log('started!'))
+if (process.argv.at(-1)?.endsWith('server.js')) {
+  console.log('starting api')
+  api.start().then(() => console.log('started!'))
+}

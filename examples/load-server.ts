@@ -112,7 +112,9 @@ const api = makeSsServer<typeof Routes, ServerCtx>(Routes, {
   },
 })
 
-console.log('Starting load server on port 8080...')
-api.start().then(() => {
-  console.log('Load server started!')
-})
+if (process.argv.at(-1)?.endsWith('server.js')) {
+  console.log('Starting load server on port 8080...')
+  api.start().then(() => {
+    console.log('Load server started!')
+  })
+}

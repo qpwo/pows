@@ -81,5 +81,7 @@ function sleep(ms = 1000) {
   return new Promise(res => setTimeout(res, ms))
 }
 
-console.log('starting api')
-api.start().then(() => console.log('started!'))
+if (process.argv.at(-1)?.endsWith('server.js')) {
+  console.log('starting api')
+  api.start().then(() => console.log('started!'))
+}
