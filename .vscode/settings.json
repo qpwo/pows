@@ -1,3 +1,11 @@
 {
-  "editor.tabSize": 2
+  "editor.tabSize": 2,
+  "workbench.colorCustomizations": {
+    "/home/l/tmp/mytheme.jsonc": {},
+    "activityBar.background": "#4D1E2C",
+    "titleBar.activeBackground": "#6B2A3D",
+    "titleBar.activeForeground": "#FEFCFC",
+    "statusBar.background": "#6B2A3D",
+    "statusBar.foreground": "#FEFCFC"
+  }
 }
