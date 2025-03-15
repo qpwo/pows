@@ -15,7 +15,8 @@
   "dependencies": {
     "@types/node": "^22.13.10",
     "pows": "file:../pows",
-    "typia": "^8.0.2"
+    "typia": "^8.0.2",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.51.0"
   },
   "devDependencies": {
     "@ryoppippi/unplugin-typia": "^2.0.3",

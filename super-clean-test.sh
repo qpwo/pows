@@ -9,6 +9,7 @@ find pows -name "*.js" -type f -delete
 find pows -name "*.js.map" -type f -delete
 find pows -name "*.d.ts" -type f -delete
 find pows -name "*.d.ts.map" -type f -delete
+find pows -name "*.d.mts" -type f -delete
 rm -rf examples/dist
 
 # Build pows library

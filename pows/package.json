@@ -7,18 +7,30 @@
   "exports": {
     ".": {
       "require": "./index.js",
+      "import": "./index.js",
+      "module": "./index.js",
+      "node": "./index.js",
       "types": "./index.d.ts"
     },
     "./browser-client": {
       "require": "./browser-client/index.js",
+      "import": "./browser-client/index.js",
+      "module": "./browser-client/index.js",
+      "node": "./browser-client/index.js",
       "types": "./browser-client/index.d.ts"
     },
     "./node-client": {
       "require": "./node-client/index.js",
+      "import": "./node-client/index.js",
+      "module": "./node-client/index.js",
+      "node": "./node-client/index.js",
       "types": "./node-client/index.d.ts"
     },
     "./node-server": {
       "require": "./node-server/index.js",
+      "import": "./node-server/index.js",
+      "module": "./node-server/index.js",
+      "node": "./node-server/index.js",
       "types": "./node-server/index.d.ts"
     }
   },
@@ -42,10 +54,11 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "prepare": "ts-patch install && npm run build"
   },
   "dependencies": {
+    "tsup": "^8.4.0",
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.51.0",
     "ws": "^8.18.1"
   },
