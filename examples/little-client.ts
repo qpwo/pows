@@ -1,9 +1,9 @@
 // example-little-client.ts
-import { makeTswsClient } from './tsws-node-client'
-import { Routes } from './example-little-server' // same Routes object
+import { makeSsClient } from 'supersock/node-client'
+import { Routes } from './little-server' // same Routes object
 
 async function main() {
-  const api = makeTswsClient(Routes, {
+  const api = makeSsClient(Routes, {
     procs: {},
     streamers: {},
     url: 'ws://localhost:8080',

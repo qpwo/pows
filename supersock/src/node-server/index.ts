@@ -1,4 +1,4 @@
-// tsws-node-server.ts
+// ss-node-server.ts
 import uWS from 'uWebSockets.js'
 
 /**
@@ -12,13 +12,13 @@ import uWS from 'uWebSockets.js'
  *   const validatedArgs = routes.server.procs.square[0](argsFromClient)
  *   const validatedResult = routes.server.procs.square[1](userHandlerResult)
  */
-export type TswsRouteProc<I, O> = readonly [
+export type SsRouteProc<I, O> = readonly [
   /** Validation function for incoming request input */
   (input: unknown) => I,
   /** Validation function for the returned output */
   (output: unknown) => O,
 ]
-export type TswsRouteStreamer<I, C> = readonly [
+export type SsRouteStreamer<I, C> = readonly [
   /** Validation function for incoming request input */
   (input: unknown) => I,
   /** Validation function for each streamed chunk */
@@ -38,14 +38,14 @@ export type TswsRouteStreamer<I, C> = readonly [
  *     }
  *   }
  */
-export interface TswsRoutes {
+export interface SsRoutes {
   server: {
-    procs: Record<string, TswsRouteProc<any, any>>
-    streamers: Record<string, TswsRouteStreamer<any, any>>
+    procs: Record<string, SsRouteProc<any, any>>
+    streamers: Record<string, SsRouteStreamer<any, any>>
   }
   client: {
-    procs: Record<string, TswsRouteProc<any, any>>
-    streamers: Record<string, TswsRouteStreamer<any, any>>
+    procs: Record<string, SsRouteProc<any, any>>
+    streamers: Record<string, SsRouteStreamer<any, any>>
   }
 }
 
@@ -58,7 +58,7 @@ export interface TswsRoutes {
  */
 type Ws = uWS.WebSocket<unknown>
 
-export type TswsServerContext<Routes extends TswsRoutes, ServerContext> = ServerContext & {
+export type SsServerContext<Routes extends SsRoutes, ServerContext> = ServerContext & {
   ws: Ws
   clientProcs: {
     [K in keyof Routes['client']['procs']]: (
@@ -76,41 +76,41 @@ export type TswsServerContext<Routes extends TswsRoutes, ServerContext> = Server
  * For each server proc route, we want a function:
  *   (validatedArgs, ctx) => Promise<validatedResult>
  */
-export type TswsServerProcs<Routes extends TswsRoutes, ServerContext> = {
+export type SsServerProcs<Routes extends SsRoutes, ServerContext> = {
   [K in keyof Routes['server']['procs']]: (
     args: ReturnType<Routes['server']['procs'][K][0]>,
-    ctx: TswsServerContext<Routes, ServerContext>,
+    ctx: SsServerContext<Routes, ServerContext>,
   ) => Promise<ReturnType<Routes['server']['procs'][K][1]>>
 }
 
-export type TswsServerStreamers<Routes extends TswsRoutes, ServerContext> = {
+export type SsServerStreamers<Routes extends SsRoutes, ServerContext> = {
   [K in keyof Routes['server']['streamers']]: (
     args: ReturnType<Routes['server']['streamers'][K][0]>,
-    ctx: TswsServerContext<Routes, ServerContext>,
+    ctx: SsServerContext<Routes, ServerContext>,
   ) => AsyncGenerator<ReturnType<Routes['server']['streamers'][K][1]>, void, unknown>
 }
 
 /**
- * makeTswsServer options: the user’s local implementations plus server config.
+ * makeSsServer options: the user’s local implementations plus server config.
  */
-export interface TswsServerOpts<Routes extends TswsRoutes, ServerContext> {
-  procs: TswsServerProcs<Routes, ServerContext>
-  streamers: TswsServerStreamers<Routes, ServerContext>
+export interface SsServerOpts<Routes extends SsRoutes, ServerContext> {
+  procs: SsServerProcs<Routes, ServerContext>
+  streamers: SsServerStreamers<Routes, ServerContext>
   port?: number
-  onConnection?: (ctx: TswsServerContext<Routes, ServerContext>) => void | Promise<void>
+  onConnection?: (ctx: SsServerContext<Routes, ServerContext>) => void | Promise<void>
 }
 
 /**
  * The returned server object, with a .start() to begin listening.
  */
-export interface TswsServer<Routes extends TswsRoutes, ServerContext> {
+export interface SsServer<Routes extends SsRoutes, ServerContext> {
   start: () => Promise<void>
 }
 
-export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
+export function makeSsServer<Routes extends SsRoutes, ServerContext = {}>(
   routes: Routes,
-  opts: TswsServerOpts<Routes, ServerContext>,
-): TswsServer<Routes, ServerContext> {
+  opts: SsServerOpts<Routes, ServerContext>,
+): SsServer<Routes, ServerContext> {
   const { procs, streamers, port = 8080, onConnection } = opts
 
   // We'll store the user procs & streamers as is, but internally treat them as (args, ctx) => ...
@@ -135,23 +135,23 @@ export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
     activeServerStreams: Map<number, AsyncGenerator<any>>
   }
 
-  const wsToContext = new WeakMap<Ws, TswsServerContext<Routes, ServerContext>>()
+  const wsToContext = new WeakMap<Ws, SsServerContext<Routes, ServerContext>>()
 
   function wsData(ws: Ws): PerSocketData {
-    return (ws as any)._tswsData
+    return (ws as any)._ssData
   }
 
   const app = uWS.App().ws('/*', {
     open: (ws: Ws) => {
-      ;(ws as any)._tswsData = {
+      ;(ws as any)._ssData = {
         nextReqId: 1,
         pendingCalls: new Map(),
         activeServerStreams: new Map(),
       } as PerSocketData
 
-      // Build TswsServerContext
+      // Build SsServerContext
       const baseCtx = {} as ServerContext
-      const fullCtx: TswsServerContext<Routes, ServerContext> = {
+      const fullCtx: SsServerContext<Routes, ServerContext> = {
         ...baseCtx,
         ws,
         clientProcs: new Proxy(

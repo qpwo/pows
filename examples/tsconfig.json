@@ -12,6 +12,9 @@
         "transform": "typia/lib/transform"
       }
     ],
+    "paths": {
+      "supersock/*": ["../supersock/dist/*"]
+    },
     "strictNullChecks": true
   },
   "include": [

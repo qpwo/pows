@@ -1,14 +1,60 @@
-// tsws-node-client.ts
+// ss-node-client.ts
 import WebSocket from 'ws'
-import { TswsRoutes } from './tsws-node-server'
 
+/**
+ * We'll define types for route definitions that rely on pairs of validation
+ * functions [ inputAssert, outputAssert ]. The server uses these to validate
+ * incoming arguments as well as outgoing results (or streamed chunks).
+ *
+ * For example, if you have:
+ *   square: [ ca<{ x: number }>(), ca<{ result: number }>() ],
+ * then at runtime we can do:
+ *   const validatedArgs = routes.server.procs.square[0](argsFromClient)
+ *   const validatedResult = routes.server.procs.square[1](userHandlerResult)
+ */
+export type SsRouteProc<I, O> = readonly [
+  /** Validation function for incoming request input */
+  (input: unknown) => I,
+  /** Validation function for the returned output */
+  (output: unknown) => O,
+]
+export type SsRouteStreamer<I, C> = readonly [
+  /** Validation function for incoming request input */
+  (input: unknown) => I,
+  /** Validation function for each streamed chunk */
+  (chunk: unknown) => C,
+]
+
+/**
+ * The overall shape of "Routes" passed in by the user via typia:
+ *   {
+ *     server: {
+ *       procs: Record<methodName, [inAssert, outAssert]>,
+ *       streamers: Record<methodName, [inAssert, chunkAssert]>
+ *     },
+ *     client: {
+ *       procs: ...,
+ *       streamers: ...
+ *     }
+ *   }
+ */
+export interface SsRoutes {
+  server: {
+    procs: Record<string, SsRouteProc<any, any>>
+    streamers: Record<string, SsRouteStreamer<any, any>>
+  }
+  client: {
+    procs: Record<string, SsRouteProc<any, any>>
+    streamers: Record<string, SsRouteStreamer<any, any>>
+  }
+}
 /**
  * A parallel approach for the client, which also takes a "Routes" object with
  * [ inAssert, outAssert ] pairs. The client can validate the outgoing arguments
  * before sending them, and validate the incoming results or streamed chunks.
  */
 
-export type TswsClientContext<Routes extends TswsRoutes, ClientContext> = ClientContext & {
+export type SsClientContext<Routes extends SsRoutes, ClientContext> = ClientContext & {
   ws: WebSocket
 }
 
@@ -16,29 +62,29 @@ export type TswsClientContext<Routes extends TswsRoutes, ClientContext> = Client
  * For each client proc route, we want a function:
  *   (validatedArgs, ctx) => Promise<validatedResult>
  */
-export type TswsClientProcs<Routes extends TswsRoutes, ClientContext> = {
+export type SsClientProcs<Routes extends SsRoutes, ClientContext> = {
   [K in keyof Routes['client']['procs']]: (
     args: ReturnType<Routes['client']['procs'][K][0]>,
-    ctx: TswsClientContext<Routes, ClientContext>,
+    ctx: SsClientContext<Routes, ClientContext>,
   ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
 }
 
-export type TswsClientStreamers<Routes extends TswsRoutes, ClientContext> = {
+export type SsClientStreamers<Routes extends SsRoutes, ClientContext> = {
   [K in keyof Routes['client']['streamers']]: (
     args: ReturnType<Routes['client']['streamers'][K][0]>,
-    ctx: TswsClientContext<Routes, ClientContext>,
+    ctx: SsClientContext<Routes, ClientContext>,
   ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
 }
 
-export interface TswsClientOpts<Routes extends TswsRoutes, ClientContext> {
-  procs: TswsClientProcs<Routes, ClientContext>
-  streamers: TswsClientStreamers<Routes, ClientContext>
+export interface SsClientOpts<Routes extends SsRoutes, ClientContext> {
+  procs: SsClientProcs<Routes, ClientContext>
+  streamers: SsClientStreamers<Routes, ClientContext>
   url: string
-  onOpen?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
-  onClose?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
+  onOpen?: (ctx: SsClientContext<Routes, ClientContext>) => void | Promise<void>
+  onClose?: (ctx: SsClientContext<Routes, ClientContext>) => void | Promise<void>
 }
 
-export interface TswsClient<Routes extends TswsRoutes, ClientContext> {
+export interface SsClient<Routes extends SsRoutes, ClientContext> {
   connect: () => Promise<void>
   close: () => void
 
@@ -61,10 +107,10 @@ export interface TswsClient<Routes extends TswsRoutes, ClientContext> {
   }
 }
 
-export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
+export function makeSsClient<Routes extends SsRoutes, ClientContext = {}>(
   routes: Routes,
-  opts: TswsClientOpts<Routes, ClientContext>,
-): TswsClient<Routes, ClientContext> {
+  opts: SsClientOpts<Routes, ClientContext>,
+): SsClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
@@ -86,7 +132,7 @@ export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
   >()
 
   // Build the client's context
-  const clientCtx: TswsClientContext<Routes, ClientContext> = {
+  const clientCtx: SsClientContext<Routes, ClientContext> = {
     ...({} as ClientContext),
     get ws() {
       return ws!
@@ -97,7 +143,7 @@ export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
   const internalProcs = procs as Record<string, (args: any, ctx: any) => Promise<any>>
   const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
 
-  const api: TswsClient<Routes, ClientContext> = {
+  const api: SsClient<Routes, ClientContext> = {
     async connect() {
       if (connected) return
       await new Promise<void>((resolve, reject) => {
