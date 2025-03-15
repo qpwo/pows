@@ -1,5 +1,5 @@
 // example-little-server.ts
-import { makeTswsServer } from './tsws-node-server'
+import { makePowsServer } from './pows-node-server'
 import { createAssert as ca } from 'typia'
 
 /**
@@ -22,7 +22,7 @@ export const Routes = {
 /**
  * Our server implementations:
  */
-const api = makeTswsServer(Routes, {
+const api = makePowsServer(Routes, {
   procs: {
     async uppercase({ s }) {
       return { result: s.toUpperCase() }

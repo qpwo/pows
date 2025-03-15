@@ -1,5 +1,5 @@
 // example-load-client.ts
-import { makeTswsClient } from './tsws-node-client'
+import { makePowsClient } from './pows-node-client'
 import { Routes } from './example-load-server' // We import the same Routes object
 
 type ClientCtx = {}
@@ -17,7 +17,7 @@ const streamerLabels = new Set(['countUp', 'randomNumbers', 'callClientStreamerX
  * plus the route definitions from the server. "procs" and "streamers"
  * here implement the callbacks the server might call, i.e. "clientProcA", etc.
  */
-const api = makeTswsClient<typeof Routes, ClientCtx>(Routes, {
+const api = makePowsClient<typeof Routes, ClientCtx>(Routes, {
   procs: {
     // Changed to accept a string and return a string
     async clientProcA(ping) {

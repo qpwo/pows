@@ -1,9 +1,9 @@
 // example-little-client.ts
-import { makeTswsClient } from './tsws-node-client'
+import { makePowsClient } from './pows-node-client'
 import { Routes } from './example-little-server' // same Routes object
 
 async function main() {
-  const api = makeTswsClient(Routes, {
+  const api = makePowsClient(Routes, {
     procs: {},
     streamers: {},
     url: 'ws://localhost:8080',

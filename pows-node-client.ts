@@ -1,6 +1,6 @@
-// tsws-node-client.ts
+// pows-node-client.ts
 import WebSocket from 'ws'
-import { TswsRoutes } from './tsws-node-server'
+import { PowsRoutes } from './pows-node-server'
 
 /**
  * A parallel approach for the client, which also takes a "Routes" object with
@@ -8,7 +8,7 @@ import { TswsRoutes } from './tsws-node-server'
  * before sending them, and validate the incoming results or streamed chunks.
  */
 
-export type TswsClientContext<Routes extends TswsRoutes, ClientContext> = ClientContext & {
+export type PowsClientContext<Routes extends PowsRoutes, ClientContext> = ClientContext & {
   ws: WebSocket
 }
 
@@ -16,29 +16,29 @@ export type TswsClientContext<Routes extends TswsRoutes, ClientContext> = Client
  * For each client proc route, we want a function:
  *   (validatedArgs, ctx) => Promise<validatedResult>
  */
-export type TswsClientProcs<Routes extends TswsRoutes, ClientContext> = {
+export type PowsClientProcs<Routes extends PowsRoutes, ClientContext> = {
   [K in keyof Routes['client']['procs']]: (
     args: ReturnType<Routes['client']['procs'][K][0]>,
-    ctx: TswsClientContext<Routes, ClientContext>,
+    ctx: PowsClientContext<Routes, ClientContext>,
   ) => Promise<ReturnType<Routes['client']['procs'][K][1]>>
 }
 
-export type TswsClientStreamers<Routes extends TswsRoutes, ClientContext> = {
+export type PowsClientStreamers<Routes extends PowsRoutes, ClientContext> = {
   [K in keyof Routes['client']['streamers']]: (
     args: ReturnType<Routes['client']['streamers'][K][0]>,
-    ctx: TswsClientContext<Routes, ClientContext>,
+    ctx: PowsClientContext<Routes, ClientContext>,
   ) => AsyncGenerator<ReturnType<Routes['client']['streamers'][K][1]>, void, unknown>
 }
 
-export interface TswsClientOpts<Routes extends TswsRoutes, ClientContext> {
-  procs: TswsClientProcs<Routes, ClientContext>
-  streamers: TswsClientStreamers<Routes, ClientContext>
+export interface PowsClientOpts<Routes extends PowsRoutes, ClientContext> {
+  procs: PowsClientProcs<Routes, ClientContext>
+  streamers: PowsClientStreamers<Routes, ClientContext>
   url: string
-  onOpen?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
-  onClose?: (ctx: TswsClientContext<Routes, ClientContext>) => void | Promise<void>
+  onOpen?: (ctx: PowsClientContext<Routes, ClientContext>) => void | Promise<void>
+  onClose?: (ctx: PowsClientContext<Routes, ClientContext>) => void | Promise<void>
 }
 
-export interface TswsClient<Routes extends TswsRoutes, ClientContext> {
+export interface PowsClient<Routes extends PowsRoutes, ClientContext> {
   connect: () => Promise<void>
   close: () => void
 
@@ -61,10 +61,10 @@ export interface TswsClient<Routes extends TswsRoutes, ClientContext> {
   }
 }
 
-export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
+export function makePowsClient<Routes extends PowsRoutes, ClientContext = {}>(
   routes: Routes,
-  opts: TswsClientOpts<Routes, ClientContext>,
-): TswsClient<Routes, ClientContext> {
+  opts: PowsClientOpts<Routes, ClientContext>,
+): PowsClient<Routes, ClientContext> {
   const { procs, streamers, url, onOpen, onClose } = opts
 
   let ws: WebSocket | null = null
@@ -86,7 +86,7 @@ export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
   >()
 
   // Build the client's context
-  const clientCtx: TswsClientContext<Routes, ClientContext> = {
+  const clientCtx: PowsClientContext<Routes, ClientContext> = {
     ...({} as ClientContext),
     get ws() {
       return ws!
@@ -97,7 +97,7 @@ export function makeTswsClient<Routes extends TswsRoutes, ClientContext = {}>(
   const internalProcs = procs as Record<string, (args: any, ctx: any) => Promise<any>>
   const internalStreamers = streamers as Record<string, (args: any, ctx: any) => AsyncGenerator<any>>
 
-  const api: TswsClient<Routes, ClientContext> = {
+  const api: PowsClient<Routes, ClientContext> = {
     async connect() {
       if (connected) return
       await new Promise<void>((resolve, reject) => {

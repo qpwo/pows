@@ -1,5 +1,5 @@
 // example-load-server.ts
-import { makeTswsServer } from './tsws-node-server'
+import { makePowsServer } from './pows-node-server'
 import { createAssert as ca } from 'typia'
 
 /**
@@ -52,7 +52,7 @@ type ServerCtx = {
   // Additional fields if needed
 }
 
-const api = makeTswsServer<typeof Routes, ServerCtx>(Routes, {
+const api = makePowsServer<typeof Routes, ServerCtx>(Routes, {
   procs: {
     async addOne(value) {
       // Now we receive `value` as a number directly and return a number.

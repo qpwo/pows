@@ -1,4 +1,4 @@
-// tsws-node-server.ts
+// pows-node-server.ts
 import uWS from 'uWebSockets.js'
 
 /**
@@ -12,13 +12,13 @@ import uWS from 'uWebSockets.js'
  *   const validatedArgs = routes.server.procs.square[0](argsFromClient)
  *   const validatedResult = routes.server.procs.square[1](userHandlerResult)
  */
-export type TswsRouteProc<I, O> = readonly [
+export type PowsRouteProc<I, O> = readonly [
   /** Validation function for incoming request input */
   (input: unknown) => I,
   /** Validation function for the returned output */
   (output: unknown) => O,
 ]
-export type TswsRouteStreamer<I, C> = readonly [
+export type PowsRouteStreamer<I, C> = readonly [
   /** Validation function for incoming request input */
   (input: unknown) => I,
   /** Validation function for each streamed chunk */
@@ -38,14 +38,14 @@ export type TswsRouteStreamer<I, C> = readonly [
  *     }
  *   }
  */
-export interface TswsRoutes {
+export interface PowsRoutes {
   server: {
-    procs: Record<string, TswsRouteProc<any, any>>
-    streamers: Record<string, TswsRouteStreamer<any, any>>
+    procs: Record<string, PowsRouteProc<any, any>>
+    streamers: Record<string, PowsRouteStreamer<any, any>>
   }
   client: {
-    procs: Record<string, TswsRouteProc<any, any>>
-    streamers: Record<string, TswsRouteStreamer<any, any>>
+    procs: Record<string, PowsRouteProc<any, any>>
+    streamers: Record<string, PowsRouteStreamer<any, any>>
   }
 }
 
@@ -58,7 +58,7 @@ export interface TswsRoutes {
  */
 type Ws = uWS.WebSocket<unknown>
 
-export type TswsServerContext<Routes extends TswsRoutes, ServerContext> = ServerContext & {
+export type PowsServerContext<Routes extends PowsRoutes, ServerContext> = ServerContext & {
   ws: Ws
   clientProcs: {
     [K in keyof Routes['client']['procs']]: (
@@ -76,41 +76,41 @@ export type TswsServerContext<Routes extends TswsRoutes, ServerContext> = Server
  * For each server proc route, we want a function:
  *   (validatedArgs, ctx) => Promise<validatedResult>
  */
-export type TswsServerProcs<Routes extends TswsRoutes, ServerContext> = {
+export type PowsServerProcs<Routes extends PowsRoutes, ServerContext> = {
   [K in keyof Routes['server']['procs']]: (
     args: ReturnType<Routes['server']['procs'][K][0]>,
-    ctx: TswsServerContext<Routes, ServerContext>,
+    ctx: PowsServerContext<Routes, ServerContext>,
   ) => Promise<ReturnType<Routes['server']['procs'][K][1]>>
 }
 
-export type TswsServerStreamers<Routes extends TswsRoutes, ServerContext> = {
+export type PowsServerStreamers<Routes extends PowsRoutes, ServerContext> = {
   [K in keyof Routes['server']['streamers']]: (
     args: ReturnType<Routes['server']['streamers'][K][0]>,
-    ctx: TswsServerContext<Routes, ServerContext>,
+    ctx: PowsServerContext<Routes, ServerContext>,
   ) => AsyncGenerator<ReturnType<Routes['server']['streamers'][K][1]>, void, unknown>
 }
 
 /**
- * makeTswsServer options: the user’s local implementations plus server config.
+ * makePowsServer options: the user’s local implementations plus server config.
  */
-export interface TswsServerOpts<Routes extends TswsRoutes, ServerContext> {
-  procs: TswsServerProcs<Routes, ServerContext>
-  streamers: TswsServerStreamers<Routes, ServerContext>
+export interface PowsServerOpts<Routes extends PowsRoutes, ServerContext> {
+  procs: PowsServerProcs<Routes, ServerContext>
+  streamers: PowsServerStreamers<Routes, ServerContext>
   port?: number
-  onConnection?: (ctx: TswsServerContext<Routes, ServerContext>) => void | Promise<void>
+  onConnection?: (ctx: PowsServerContext<Routes, ServerContext>) => void | Promise<void>
 }
 
 /**
  * The returned server object, with a .start() to begin listening.
  */
-export interface TswsServer<Routes extends TswsRoutes, ServerContext> {
+export interface PowsServer<Routes extends PowsRoutes, ServerContext> {
   start: () => Promise<void>
 }
 
-export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
+export function makePowsServer<Routes extends PowsRoutes, ServerContext = {}>(
   routes: Routes,
-  opts: TswsServerOpts<Routes, ServerContext>,
-): TswsServer<Routes, ServerContext> {
+  opts: PowsServerOpts<Routes, ServerContext>,
+): PowsServer<Routes, ServerContext> {
   const { procs, streamers, port = 8080, onConnection } = opts
 
   // We'll store the user procs & streamers as is, but internally treat them as (args, ctx) => ...
@@ -135,23 +135,23 @@ export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
     activeServerStreams: Map<number, AsyncGenerator<any>>
   }
 
-  const wsToContext = new WeakMap<Ws, TswsServerContext<Routes, ServerContext>>()
+  const wsToContext = new WeakMap<Ws, PowsServerContext<Routes, ServerContext>>()
 
   function wsData(ws: Ws): PerSocketData {
-    return (ws as any)._tswsData
+    return (ws as any)._powsData
   }
 
   const app = uWS.App().ws('/*', {
     open: (ws: Ws) => {
-      ;(ws as any)._tswsData = {
+      ;(ws as any)._powsData = {
         nextReqId: 1,
         pendingCalls: new Map(),
         activeServerStreams: new Map(),
       } as PerSocketData
 
-      // Build TswsServerContext
+      // Build PowsServerContext
       const baseCtx = {} as ServerContext
-      const fullCtx: TswsServerContext<Routes, ServerContext> = {
+      const fullCtx: PowsServerContext<Routes, ServerContext> = {
         ...baseCtx,
         ws,
         clientProcs: new Proxy(
@@ -551,7 +551,7 @@ export function makeTswsServer<Routes extends TswsRoutes, ServerContext = {}>(
           if (!token) {
             return reject(new Error(`Failed to listen on port ${port}`))
           }
-          console.log(`TSWS uWebSockets server listening on port ${port}`)
+          console.log(`POWS uWebSockets server listening on port ${port}`)
           resolve()
         })
       })
