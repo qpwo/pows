@@ -1,5 +1,5 @@
-// example-load-server.ts
-import { makePowsServer } from './pows-node-server'
+// load-server.ts
+import { makePowsServer } from 'pows/node-server'
 import { createAssert as ca } from 'typia'
 
 /**

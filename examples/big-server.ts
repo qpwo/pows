@@ -1,5 +1,5 @@
-// example-big-server.ts
-import { makePowsServer } from './pows-node-server'
+// big-server.ts
+import { makePowsServer } from 'pows/node-server'
 import { createAssert as ca } from 'typia'
 
 type Empty = Record<string, never>

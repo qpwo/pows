@@ -1,6 +1,6 @@
-// example-little-client.ts
-import { makePowsClient } from './pows-node-client'
-import { Routes } from './example-little-server' // same Routes object
+// little-client.ts
+import { makePowsClient } from 'pows/node-client'
+import { Routes } from './little-server' // same Routes object
 
 async function main() {
   const api = makePowsClient(Routes, {

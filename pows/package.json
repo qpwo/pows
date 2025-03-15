@@ -1,0 +1,60 @@
+{
+  "name": "pows",
+  "version": "1.0.0",
+  "description": "Type-safe bidirectional RPC and streaming over WebSockets for Node.js and browsers",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./index.js",
+      "types": "./index.d.ts"
+    },
+    "./browser-client": {
+      "require": "./browser-client/index.js",
+      "types": "./browser-client/index.d.ts"
+    },
+    "./node-client": {
+      "require": "./node-client/index.js",
+      "types": "./node-client/index.d.ts"
+    },
+    "./node-server": {
+      "require": "./node-server/index.js",
+      "types": "./node-server/index.d.ts"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.d.ts",
+    "*.js.map",
+    "*.d.ts.map",
+    "browser-client/**/*.js",
+    "browser-client/**/*.d.ts",
+    "browser-client/**/*.js.map",
+    "browser-client/**/*.d.ts.map",
+    "node-client/**/*.js",
+    "node-client/**/*.d.ts",
+    "node-client/**/*.js.map",
+    "node-client/**/*.d.ts.map",
+    "node-server/**/*.js",
+    "node-server/**/*.d.ts",
+    "node-server/**/*.js.map",
+    "node-server/**/*.d.ts.map",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "ts-patch install && npm run build"
+  },
+  "dependencies": {
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.51.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@ryoppippi/unplugin-typia": "^2.0.3",
+    "@types/node": "^22.13.10",
+    "@types/ws": "^8.18.0",
+    "ts-patch": "^3.3.0",
+    "typescript": "^5.8.2",
+    "typia": "^8.0.2"
+  }
+}

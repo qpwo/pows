@@ -1,6 +1,29 @@
 // pows-node-client.ts
 import WebSocket from 'ws'
-import { PowsRoutes } from './pows-node-server'
+
+export type PowsRouteProc<I, O> = readonly [
+  /** Validation function for incoming request input */
+  (input: unknown) => I,
+  /** Validation function for the returned output */
+  (output: unknown) => O,
+]
+export type PowsRouteStreamer<I, C> = readonly [
+  /** Validation function for incoming request input */
+  (input: unknown) => I,
+  /** Validation function for each streamed chunk */
+  (chunk: unknown) => C,
+]
+
+export interface PowsRoutes {
+  server: {
+    procs: Record<string, PowsRouteProc<any, any>>
+    streamers: Record<string, PowsRouteStreamer<any, any>>
+  }
+  client: {
+    procs: Record<string, PowsRouteProc<any, any>>
+    streamers: Record<string, PowsRouteStreamer<any, any>>
+  }
+}
 
 /**
  * A parallel approach for the client, which also takes a "Routes" object with

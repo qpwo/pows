@@ -1,0 +1,26 @@
+{
+  "name": "pows-examples",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "little-server": "node dist/little-server.js",
+    "little-client": "node dist/little-client.js",
+    "big-server": "node dist/big-server.js",
+    "big-client": "node dist/big-client.js",
+    "load-server": "node dist/load-server.js",
+    "load-client": "node dist/load-client.js",
+    "all": "./run-all.sh",
+    "prepare": "ts-patch install"
+  },
+  "dependencies": {
+    "@types/node": "^22.13.10",
+    "pows": "file:../pows",
+    "typia": "^8.0.2"
+  },
+  "devDependencies": {
+    "@ryoppippi/unplugin-typia": "^2.0.3",
+    "esbuild": "^0.25.1",
+    "ts-patch": "^3.3.0",
+    "typescript": "^5.8.2"
+  }
+}

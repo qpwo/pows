@@ -1,5 +1,5 @@
-// example-little-server.ts
-import { makePowsServer } from './pows-node-server'
+// little-server.ts
+import { makePowsServer } from 'pows/node-server'
 import { createAssert as ca } from 'typia'
 
 /**
@@ -33,7 +33,7 @@ const api = makePowsServer(Routes, {
 })
 
 /**
- * Only start the server if this file is run directly (e.g. `node dist/example-little-server.js`).
+ * Only start the server if this file is run directly (e.g. `node dist/little-server.js`).
  */
 if (process.argv.at(-1)?.split('.')?.at(-2)?.endsWith('server')) {
   console.log('starting api')

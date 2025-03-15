@@ -1,6 +1,6 @@
-// example-load-client.ts
-import { makePowsClient } from './pows-node-client'
-import { Routes3 } from './example-load-server' // We import the same Routes3 object
+// load-client.ts
+import { makePowsClient } from 'pows/node-client'
+import { Routes3 } from './load-server' // We import the same Routes3 object
 
 type ClientCtx = {}
 

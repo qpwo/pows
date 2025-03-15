@@ -1,6 +1,6 @@
-// example-big-client.ts
-import { makePowsClient } from './pows-node-client'
-import { Routes2 } from './example-big-server'
+// big-client.ts
+import { makePowsClient } from 'pows/node-client'
+import { Routes2 } from './big-server'
 
 async function main() {
   const api = makePowsClient(Routes2, {
