@@ -1,4 +1,4 @@
-# pows -- cut your ping in half!
+# pows -- cut your latency in half!
 
 Messages only have to travel one way! Websockets have gotten so damn good.
 
